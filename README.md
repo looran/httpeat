@@ -110,6 +110,12 @@ _EOF
 httpeat bigfilesE ./list.txt
 ```
 
+# Installation
+
+```
+pip install httpeat
+```
+
 # Limitations
 
 files count:
