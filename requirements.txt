@@ -1,4 +1,3 @@
-nodriver
 httpx[socks]
 bs4
 lxml
