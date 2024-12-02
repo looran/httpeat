@@ -1,0 +1,4 @@
+# 195 - CG 39: 2 bands
+# freq_min;freq_max;emr_count;systeme1_name;systeme1_count[...]
+10700000000;11700000000;6;FH;6
+17700000000;18100000000;1;FH;1

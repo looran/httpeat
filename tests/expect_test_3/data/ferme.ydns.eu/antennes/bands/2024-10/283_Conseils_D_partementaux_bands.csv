@@ -1,0 +1,7 @@
+# 283 - Conseils Départementaux: 5 bands
+# freq_min;freq_max;emr_count;systeme1_name;systeme1_count[...]
+34900000;36600000;2766;PMR;2766
+39500000;40000000;2456;PMR;2456
+40000000;40000000;45;PMR;45
+40000000;40600000;239;PMR;239
+1427000000;1429000000;1;FH;1

@@ -1,0 +1,8 @@
+nodriver
+httpx[socks]
+bs4
+lxml
+python-dateutil
+rich
+humanfriendly
+tenacity

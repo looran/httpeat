@@ -1,0 +1,7 @@
+# 218 - Sté de Transport audiovisuel: 5 bands
+# freq_min;freq_max;emr_count;systeme1_name;systeme1_count[...]
+1377000000;1400000000;14;FH;14
+1429000000;1452000000;40;FH;40
+8025000000;8175000000;8;FH;8
+8215000000;8400000000;1;FH;1
+8400000000;8500000000;49;FH;49

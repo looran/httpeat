@@ -1,0 +1,4 @@
+# 211 - Société d'autoroute: 2 bands
+# freq_min;freq_max;emr_count;systeme1_name;systeme1_count[...]
+87500000;108000000;495;FM;495
+107500000;108000000;1;FM;1

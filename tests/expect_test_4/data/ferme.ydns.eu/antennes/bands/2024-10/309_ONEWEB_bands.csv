@@ -1,0 +1,4 @@
+# 309 - ONEWEB: 2 bands
+# freq_min;freq_max;emr_count;systeme1_name;systeme1_count[...]
+27500000000;27600000000;324;SAT NGEO;324
+27600000000;30000000000;324;SAT NGEO;324

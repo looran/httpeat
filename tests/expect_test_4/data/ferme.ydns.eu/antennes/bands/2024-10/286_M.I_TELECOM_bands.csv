@@ -1,0 +1,5 @@
+# 286 - M.I TELECOM: 3 bands
+# freq_min;freq_max;emr_count;systeme1_name;systeme1_count[...]
+10700000000;11700000000;2;FH;2
+22000000000;22100000000;2;FH;2
+23000000000;23100000000;2;FH;2

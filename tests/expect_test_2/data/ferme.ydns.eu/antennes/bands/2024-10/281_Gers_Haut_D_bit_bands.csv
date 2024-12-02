@@ -1,0 +1,4 @@
+# 281 - Gers Haut Débit: 2 bands
+# freq_min;freq_max;emr_count;systeme1_name;systeme1_count[...]
+17700000000;18100000000;20;FH;20
+18600000000;18800000000;2;FH;2

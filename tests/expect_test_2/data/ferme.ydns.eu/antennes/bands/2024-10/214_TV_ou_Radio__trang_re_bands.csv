@@ -1,0 +1,7 @@
+# 214 - TV ou Radio étrangére: 5 bands
+# freq_min;freq_max;emr_count;systeme1_name;systeme1_count[...]
+87500000;108000000;40;FM;40
+174000000;223000000;6;RDF T-DAB;6
+223000000;225000000;1;RDF T-DAB;1
+470000000;694000000;2;RDF DVB-T;2
+470000000;790000000;1;RDF DVB-T;1

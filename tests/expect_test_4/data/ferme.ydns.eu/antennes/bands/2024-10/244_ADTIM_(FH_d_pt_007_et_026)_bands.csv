@@ -1,0 +1,4 @@
+# 244 - ADTIM (FH dépt 007 et 026): 2 bands
+# freq_min;freq_max;emr_count;systeme1_name;systeme1_count[...]
+10700000000;11700000000;2;FH;2
+12800000000;13200000000;20;FH;20

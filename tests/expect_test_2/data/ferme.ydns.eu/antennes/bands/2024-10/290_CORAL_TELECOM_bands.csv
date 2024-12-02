@@ -1,0 +1,3 @@
+# 290 - CORAL TELECOM: 1 bands
+# freq_min;freq_max;emr_count;systeme1_name;systeme1_count[...]
+10700000000;11700000000;3;FH;3

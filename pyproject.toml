@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "httpeat"
+description = "a recursive, parallel and multi-mirror/multi-proxy HTTP downloader"
+authors = [ {name = "Laurent Ghigonis", email = "ooookiwi@protonmail.com"}, ]
+readme = "README.md"
+requires-python = ">=3.0"
+keywords = ["http", "downloader", "recursive", "parallel", "mirror", "proxy"]
+license = {text = "BSD-3-Clause"}
+dynamic = ["version", "dependencies"]
+
+[project.scripts]
+httpeat = "httpeat:main"
+
+[tool.setuptools.dynamic]
+version = {attr = "httpeat.VERSION"}
+dependencies = {file = ["requirements.txt"]}
+
+[project.urls]
+"Homepage" = "https://github.com/looran/httpeat"

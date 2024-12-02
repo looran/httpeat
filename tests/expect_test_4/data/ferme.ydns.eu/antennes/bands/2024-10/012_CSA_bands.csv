@@ -1,0 +1,4 @@
+# 12 - CSA: 2 bands
+# freq_min;freq_max;emr_count;systeme1_name;systeme1_count[...]
+174000000;223000000;64;RDF T-DAB;64
+223000000;225000000;2;RDF T-DAB;2
