@@ -1,4 +1,14 @@
-httpeat is a recursive, parallel and multi-mirror/multi-proxy HTTP downloader.
+**httpeat is a recursive, parallel and multi-mirror/multi-proxy HTTP downloader**
+
+Features:
+- parses HTTP index pages and HTTP URLs list, provided as arguments or from text file
+- **recursive and parallel crawling** of index pages
+- **download in parallel** multiple URLs, with configurable tasks count
+- **fast interrupt and resume** mechanism, even on hundreds of thousands files directories as it remembers where indexing and downloads were interrupted
+- **robust retry** and resumes transfers automatically
+- supports downloading **in parallel from multiple mirrors**
+- supports downloading **in parallel from multiple proxies**
+- best suited for bandwidth limited servers  
 
 ![overview](doc/httpeat_overview_0.3.png)
 
@@ -61,22 +71,34 @@ options:
 ## Example usage
 
 - crawl HTTP index page and linked files
-`httpeat antennes https://ferme.ydns.eu/antennes/bands/2024-10/`
+```
+httpeat antennes https://ferme.ydns.eu/antennes/bands/2024-10/
+```
 
 - resume after interrupt
-`httpeat antennes`
+```
+httpeat antennes
+```
 
 - crawl HTTP index page, using mirror from host2
-`httpeat bigfilesA https://host1/data/ -m "https://host2/data/ mirrors https://host1/data/"`
+```
+httpeat bigfilesA https://host1/data/ -m "https://host2/data/ mirrors https://host1/data/"
+```
 
 - crawl HTTP index page, using 2 proxies
-`httpeat bigfilesB https://host1/data/ -x "socks4://192.168.0.2:3000" -x "socks4://192.168.0.3:3000"`
+```
+httpeat bigfilesB https://host1/data/ -x "socks4://192.168.0.2:3000" -x "socks4://192.168.0.3:3000"
+```
 
 - crawl 2 HTTP index directory pages
-`httpeat bigfilesC https://host1/data/one/ https://host1/data/six/`
+```
+httpeat bigfilesC https://host1/data/one/ https://host1/data/six/
+```
 
 - download 3 files
-`httpeat bigfilesD https://host1/data/bigA.iso https://host1/data/six/bigB.iso https://host1/otherdata/bigC.iso`
+```
+httpeat bigfilesD https://host1/data/bigA.iso https://host1/data/six/bigB.iso https://host1/otherdata/bigC.iso
+```
 
 - download 3 files with URLs from txt file
 ```
