@@ -25,6 +25,25 @@ unless -P / --no-progress is specified, a live progress output is displayed bell
    idx
       indexer global progress, based on number of pages indexed and e<error-count>
 
+state_{{download,index}}.csv format
+   type,url,date,size,state
+   type
+      f: file
+      d: directory
+   url
+      full url of the file or directory to download
+   date
+      when indexing, modification date of files to download is parsed from HTTP index page
+   size
+      when indexing, size of files to download is parsed from HTTP index page
+   state
+      ok: downloading is complete
+      progress: downloading is incomplete and in progress or will be resumed on next startup
+      error: downloading is stopped due to errors and will not be resumed
+      todo: downloading has not started yet
+      skipped: downloading is skipped due to -s / --skip rules, and will be re-evaluated on next startup
+      ignore: downloading is permanently skipped (useful to manualy ignore specific files)
+
 examples:
 - crawl HTTP index page and linked files
 httpeat antennes https://ferme.ydns.eu/antennes/bands/2024-10/
