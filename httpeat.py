@@ -275,8 +275,8 @@ def parse_httpindex(dirurl, bs, wk_num) -> list:
             for n, table in enumerate(tables):
                 entries.extend(_parse_table(table, n))
         except Exception as e:
-            log.debug(f"could not parse table, trying raw: {e}")
-            log.warning(traceback.format_exc())
+            log.warning(f"could not parse table, trying raw: {e}")
+            log.debug(traceback.format_exc())
             entries = _parse_raw(bs)
 
     return entries
