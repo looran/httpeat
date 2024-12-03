@@ -631,12 +631,12 @@ class Httpeat():
         task_downloader = None
         # start indexer
         if not conf["download_only"]:
-            task_indexer = asyncio.create_task(self.indexer(state_idx, state_dl, conf))
+            task_indexer = asyncio.create_task(self.indexer())
         # start downloader
         if not conf["index_only"]:
-            task_downloader = asyncio.create_task(self.downloader(state_idx, state_dl, conf))
+            task_downloader = asyncio.create_task(self.downloader())
         # start queue maintainer: save to CSV and update progress periodicaly
-        task_maintainer = asyncio.create_task(self.maintainer(state_idx, state_dl))
+        task_maintainer = asyncio.create_task(self.maintainer())
 
         # setup rich live display to show progress
         pbars = None
@@ -684,8 +684,11 @@ class Httpeat():
         elapsed = int(time_end - time_begin)
         log.info(f"end session {conf['session_name']} at {now()} after {datetime.timedelta(seconds=elapsed)}")
 
-    async def indexer(self, state_idx, state_dl, conf):
+    async def indexer(self):
         log.debug("indexer start")
+        conf = self.conf
+        state_idx = self.state_idx
+        state_dl = self.state_dl
         tasks = list()
 
         try:
@@ -697,7 +700,7 @@ class Httpeat():
             async with httpx.AsyncClient(proxy=conf["proxy_list"][0]["proxy_url"], limits=limits, verify=not conf["no_ssl_verify"], timeout=conf["timeout"], headers=conf["headers"]) as client:
                 # start indexer tasks
                 for wk_num in range(conf["tasks_count"]):
-                    tsk = asyncio.create_task(self.indexer_worker(wk_num, client, state_idx, state_dl, conf))
+                    tsk = asyncio.create_task(self.indexer_worker(wk_num, client))
                     tasks.append(tsk)
                 # wait for the index state queues to be empty
                 await state_idx.join()
@@ -712,7 +715,11 @@ class Httpeat():
                 tsk.cancel()
             await asyncio.gather(*tasks, return_exceptions=True)
 
-    async def indexer_worker(self, wk_num, client, state_idx, state_dl, conf):
+    async def indexer_worker(self, wk_num, client):
+        conf = self.conf
+        state_idx = self.state_idx
+        state_dl = self.state_dl
+
         log.debug(f"idx-{wk_num} startup")
         exiting = False
         while True:
@@ -775,8 +782,11 @@ class Httpeat():
                 if not exiting:
                     await sleepy(conf["wait"], status)
 
-    async def downloader(self, state_idx, state_dl, conf):
+    async def downloader(self):
         log.debug("downloader start")
+        conf = self.conf
+        state_idx = self.state_idx
+        state_dl = self.state_dl
         tasks = list()
 
         try:
@@ -793,7 +803,7 @@ class Httpeat():
                 for wk_src in conf["sources"]:
                     for wk_num in range(wk_proxy["tasks_count"]):
                         state_dl.progress_wk_create(wk_src, wk_num, wk_proxy)
-                        tsk = asyncio.create_task(self.downloader_worker(wk_src, wk_num, wk_proxy, client, state_dl, conf))
+                        tsk = asyncio.create_task(self.downloader_worker(wk_src, wk_num, wk_proxy, client))
                         tasks.append(tsk)
             # wait for the indexer queues to be empty
             await state_idx.join()
@@ -817,9 +827,12 @@ class Httpeat():
                 log.warning(f"downloader error in cleanup: {e}") # TODO remove that try except, debug only
                 log.warning(traceback.format_exc())
 
-    async def downloader_worker(self, wk_src, wk_num, wk_proxy, client, state_dl, conf):
+    async def downloader_worker(self, wk_src, wk_num, wk_proxy, client):
         wk_name = f"dl-{wk_src['name']}{wk_proxy['name']}{wk_num}"
         log.debug(f"{wk_name} startup : proxy {wk_proxy['proxy_url']}")
+        conf = self.conf
+        state_dl = self.state_dl
+
         exiting = False
         while True:
             entry = await state_dl.get()
@@ -939,8 +952,11 @@ class Httpeat():
 
         log.debug(f"{wk_name} exiting")
 
-    async def maintainer(self, state_idx, state_dl):
+    async def maintainer(self):
         log.debug(f"maintainer: started")
+        state_idx = self.state_idx
+        state_dl = self.state_dl
+
         queues = list(filter(None, [state_idx, state_dl]))
         t_lastsave = time.monotonic()
         while True:
