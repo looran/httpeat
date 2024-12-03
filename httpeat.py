@@ -470,7 +470,7 @@ class URLQueue_idx(URLQueue):
     def __str__(self):
         errors = ""
         if self.stats["errors"] > 0:
-            errors = " ({self.stats['errors']} errors)"
+            errors = f" ({self.stats['errors']} errors)"
         return f"indexed {self.stats['recv_items']} items, progress {len(self._done)}/{self.total_items()}{errors} items"
 
 class URLQueue_dl(URLQueue):
@@ -534,7 +534,7 @@ class URLQueue_dl(URLQueue):
     def __str__(self):
         errors = ""
         if self.stats["errors"] > 0:
-            errors = " ({self.stats['errors']} errors)"
+            errors = f" ({self.stats['errors']} errors)"
         return f"downloaded {format_size(self.stats['recv_bytes'])}, {self.stats['recv_items']} items, progress {format_size(self.size['completed'])}/{format_size(self.size['total'])}, {len(self._done)}/{self.total_items()}{errors} items"
 
 #
