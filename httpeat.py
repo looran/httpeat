@@ -114,6 +114,7 @@ log = logging.getLogger("httpeat")
 #
 
 def raise_sigint(signum, frame):
+    log.debug("catched SIGTERM, sending SIGINT")
     signal.raise_signal(signal.SIGINT)
 
 def now():
@@ -132,10 +133,10 @@ def url_is_directory(url):
         return True
     return False
 
-def url_to_path(url, sdir, urls_prefix=None):
+def url_to_path(url, sdir, urls_prefix=None, prefix="", extension=""):
     split = urlsplit(url)
     # find the local path (both finished and temporary) for url
-    local_path = Path(f"{split.netloc}/{unquote(split.path)}")
+    local_path = Path(f"{split.netloc}/{prefix}{unquote(split.path)}{extension}")
     if len(local_path.name) > FILENAME_MAXLEN - len(".download"):
         # shorten the file name
         name = local_path.name
@@ -145,7 +146,7 @@ def url_to_path(url, sdir, urls_prefix=None):
     path_finished = sdir / "data" / local_path
     path_tmp = sdir / "data" / local_path.with_name(local_path.name + ".download")
     # prepare printable versions
-    if urls_prefix:
+    if urls_prefix is not None:
         url_print = url[len(urls_prefix):]
         path_print = unquote(urlsplit(url_print).path)
     else:
@@ -157,17 +158,17 @@ def ignore_comments(l):
     """ return a list of elements which do not start by '#' """
     return [e for e in l if not e.startswith("#") ]
 
-def skip_check(url, entry, skip_rules):
+def skip_check(entry, skip_rules):
     skip = None
     for skiprule in skip_rules:
         rule, pattern = skiprule.split(':', 1)
         match rule:
             case "dl-path":
-                if re.match(pattern, url, re.I):
+                if re.match(pattern, entry["url"], re.I):
                     skip = skiprule
                     break
             case "dl-size-gt":
-                if entry["size"] and entry["size"] > parse_size(pattern):
+                if entry["size"] > parse_size(pattern):
                     skip = skiprule
                     break
             case _:
@@ -213,8 +214,8 @@ def parse_httpindex(dirurl, bs, wk_num) -> list:
         return None
 
     def _parse_raw(bs):
-        # index is based on HTML <a> links in document, hazardous parsing
-        # possibly in <pre>, nginx style. maybe random HTML page too.
+        """ parse index based on HTML <a> links in document, hazardous parsing
+            possibly in <pre>, nginx style. maybe random HTML page too """
         log.debug(f"index-{wk_num}: index parse raw")
         entries = list()
         for link in bs.find_all("a"):
@@ -232,12 +233,12 @@ def parse_httpindex(dirurl, bs, wk_num) -> list:
                         try:
                             entry["size"] = parse_size(vals[1])
                         except:
-                            entry["size"] = -1
+                            pass
             entries.append(entry)
         return entries
 
     def _parse_table(table, n):
-        # index is based on HTML <table>, apache style
+        """ parse index based on HTML <table>, apache style """
         log.debug(f"index-{wk_num}: index parse table {n}")
         entries = list()
         trs = table.find_all("tr")
@@ -320,13 +321,13 @@ class URLQueue(asyncio.Queue):
         self.sdir = sdir
         self.path = sdir / fname
         self.retry_count = retry_count
-        self.size = {"total": 0, "completed": 0, "nosize": 0}
-        self.stats = {"recv_bytes": 0, "recv_items": 0, "errors": 0}
+        self.stats = {"items_ok": 0, "items_error": 0, "size_total": 0, "size_completed": 0, "no_size": 0}
         self.progress = None
         self.progress_wk = None
         self.progress_created = asyncio.Event()
         self._done = list()
         self._done_urls = list() # store only url strings, to quickly check for duplicates
+        self._todo_urls = list() # store only url strings, to quickly check for duplicates
 
         if self.path.exists():
             log.info(f"{self.NAME_PROGRESS}: loading existing queue from {self.path}")
@@ -337,12 +338,11 @@ class URLQueue(asyncio.Queue):
                     for entry in reader:
                         if entry["state"] not in self.STATES_LOAD_ORDER:
                             raise Exception(f"invalid entry state {entry} in CSV {self.path}")
-                        if entry["size"] == '':
-                            entry["size"] = -1 # compatibility with old format
+                        entry["size"] = int(entry["size"])
                         if entry["state"] == load_state:
                             # append entry to todo or done lists
                             if entry["state"] in ["todo", "progress", "skipped"]:
-                                self.todo(entry, entry["state"])
+                                self.todo(entry, entry["state"], init_load=True)
                             elif entry["state"] in ["ok", "error", "ignore"]:
                                 self.done(entry, entry["state"], no_retry=True, init_load=True)
                     fd.seek(0)
@@ -350,44 +350,48 @@ class URLQueue(asyncio.Queue):
         else:
             log.info(f"{self.NAME_PROGRESS}: starting new queue")
 
-    def todo(self, entry, status="todo", requeue=False, touch=False):
+        self.stats_init = self.stats.copy()
+
+    def todo(self, entry, status="todo", requeue=False, touch=False, init_load=False):
         log.debug(f"{self.NAME}: todo {entry}")
-        if entry["url"] not in self._done_urls:
-            path_tmp = None
-            entry["state"] = status
-            self.put_nowait(entry)
-            if not requeue:
-                # update gobal total size
-                size = int(entry["size"]) if (entry["size"] is not None and int(entry["size"]) != -1) else None
-                if size is not None:
-                    self.size["total"] += size
+
+        if not (init_load or requeue) and (entry["url"] in self._done_urls or entry["url"] in self._todo_urls):
+            log.debug(f"{self.NAME}: entry already in todo/done, not adding")
+            return
+
+        path_tmp = None
+        entry["state"] = status
+        self.put_nowait(entry)
+        self._todo_urls.append(entry["url"])
+        if not requeue:
+            # update gobal total size
+            if entry["size"] >= 0:
+                self.stats["size_total"] += entry["size"]
+            else:
+                self.stats["no_size"] += 1
+            if entry["state"] == "progress":
+                # update global completed size, based on actual file size
+                path_finished, path_tmp, _, _ = url_to_path(entry["url"], self.sdir)
+                if path_tmp.exists():
+                    filesize = path_tmp.stat().st_size
+                    self.stats["size_completed"] += filesize
+        if touch:
+            # create empty file / directory
+            if path_tmp is None:
+                path_finished, path_tmp, _, _ = url_to_path(entry["url"], self.sdir)
+            path_finished_exists = path_finished.exists()
+            if not path_finished_exists and not path_tmp.exists():
+                if entry["type"] == 'f':
+                    if not path_tmp.parent.exists():
+                        path_tmp.parent.mkdir(parents=True)
+                    path_tmp.touch()
                 else:
-                    self.size["nosize"] += 1
-                if entry["state"] == "progress":
-                    # update global completed size, based on actual file size
-                    path_finished, path_tmp, _, _ = url_to_path(entry["url"], self.sdir)
-                    if path_tmp.exists():
-                        filesize = path_tmp.stat().st_size
-                        self.size["completed"] += filesize
-            if touch:
-                # create empty file / directory
-                if path_tmp is None:
-                    path_finished, path_tmp, _, _ = url_to_path(entry["url"], self.sdir)
-                path_finished_exists = path_finished.exists()
-                if not path_finished_exists and not path_tmp.exists():
-                    if entry["type"] == 'f':
-                        if not path_tmp.parent.exists():
-                            path_tmp.parent.mkdir(parents=True)
-                        path_tmp.touch()
-                    else:
-                        if not path_finished_exists:
-                            path_finished.mkdir(parents=True)
-        else:
-            log.debug(f"{self.NAME}: entry already in done URLs, not adding")
+                    if not path_finished_exists:
+                        path_finished.mkdir(parents=True)
 
     def done(self, entry, status="ok", no_retry=False, init_load=False):
         log.debug(f"{self.NAME}: done with status '{status}' : {entry}")
-        if not no_retry and status == "error" and ("err" not in entry or entry["err"] < self.retry_count):
+        if not no_retry and status == "error" and self.retry_count and ("err" not in entry or entry["err"] < self.retry_count):
             # requeue in todo items
             if "err" not in entry:
                 entry["err"] = 0
@@ -398,15 +402,10 @@ class URLQueue(asyncio.Queue):
             entry["state"] = status
             self._done.append(entry)
             self._done_urls.append(entry["url"])
-            if status == "error":
-                self.stats["errors"] += 1
-            if init_load:
-                size = int(entry["size"]) if (entry["size"] is not None and int(entry["size"]) != -1) else None
-                if size is not None:
-                    self.size["completed"] += size
-                    self.size["total"] += size
+            if status == "ok":
+                self.stats["items_ok"] += 1
             else:
-                self.stats["recv_items"] += 1
+                self.stats["items_error"] += 1
         if not init_load:
             self.task_done()
 
@@ -431,11 +430,17 @@ class URLQueue(asyncio.Queue):
         signal.signal(signal.SIGINT, sigint_handler)
 
     def size_ajust_total(self, diff):
-        self.size["total"] += diff
+        self.stats["size_total"] += diff
 
     def size_ajust_completed(self, diff):
-        self.size["completed"] += diff
-        self.stats["recv_bytes"] += diff
+        self.stats["size_completed"] += diff
+
+    def items_total(self, no_zero=False):
+        return self.qsize() + len(self._done)
+
+    def get_stats_session(self):
+        """ substract stats with stats_init """
+        return { kg: vg-vi for (kg, vg), vi in zip(self.stats.items(), self.stats_init.values()) }
 
     def progress_init(self, proxy_list, sources):
         # compute progress bar name identation
@@ -460,9 +465,6 @@ class URLQueue(asyncio.Queue):
             if refresh:
                 self.progress_refresh()
 
-    def total_items(self):
-        return self.qsize() + len(self._done)
-
     async def progress_get_renderables(self):
         await self.progress_created.wait() # wait for the tasks to initialize their progress bars
         renderables = list()
@@ -476,35 +478,27 @@ class URLQueue_idx(URLQueue):
     NAME_PROGRESS = "idx"
     def progress_init_getpb(self, name_len):
         return Progress(TextColumn(f"{self.NAME_PROGRESS:<{name_len}}"),
-                BarColumn(), TaskProgressColumn(), MofNCompleteColumn(), TextColumn("e{task.fields[items_errors]}"), TimeRemainingColumn())
+                BarColumn(), TaskProgressColumn(), MofNCompleteColumn(), TextColumn("e{task.fields[items_error]}"), TimeRemainingColumn())
 
     def progress_refresh(self, force=False):
         if self.progress and (self.progress["update"] or force):
-            total = self.total_items()
-            if total == 0:
-                total = 1 # if we have nothing to do yet, show the progress bar as empty
-            self.progress["pb"].update(self.progress["task"], total=total, completed=len(self._done), items_errors=self.stats["errors"])
+            self.progress["pb"].update(self.progress["task"], total=self.items_total(no_zero=True), completed=self.stats["items_ok"], items_error=self.stats["items_error"])
             self.progress["update"] = False
 
     def __str__(self):
-        errors = ""
-        if self.stats["errors"] > 0:
-            errors = f" ({self.stats['errors']} errors)"
-        return f"indexed {self.stats['recv_items']} items, progress {len(self._done)}/{self.total_items()}{errors} items"
+        session = self.get_stats_session()
+        return f"index session {session['items_ok']} items {session['items_error']} errors, index global {self.stats['items_ok']}/{self.items_total()} items {self.stats['items_error']} errors"
 
 class URLQueue_dl(URLQueue):
     NAME = "state_dl"
     NAME_PROGRESS = "dl"
     def progress_init_getpb(self, name_len):
         return Progress(TextColumn(f"{self.NAME_PROGRESS:<{name_len}}"),
-                BarColumn(), TaskProgressColumn(), DownloadColumn(), TransferSpeedColumn(), TextColumn("{task.fields[items_completed]}/{task.fields[items_total]} e{task.fields[items_errors]}"), TimeRemainingColumn())
+                BarColumn(), TaskProgressColumn(), DownloadColumn(), TransferSpeedColumn(), TextColumn("{task.fields[items_completed]}/{task.fields[items_total]} e{task.fields[items_error]}"), TimeRemainingColumn())
 
     def progress_refresh(self, force=False):
         if self.progress and (self.progress["update"] or force):
-            total = self.size["total"]
-            if total == 0:
-                total = 1 # if we have nothing to do yet, show the progress bar as empty
-            self.progress["pb"].update(self.progress["task"], total=total, completed=self.size["completed"], items_total=self.total_items(), items_completed=len(self._done), items_errors=self.stats["errors"])
+            self.progress["pb"].update(self.progress["task"], total=self.stats["size_total"], completed=self.stats["size_completed"], items_total=self.items_total(), items_completed=self.stats["items_ok"], items_error=self.stats["items_error"])
             self.progress["update"] = False
 
     def progress_wk_init(self):
@@ -519,12 +513,12 @@ class URLQueue_dl(URLQueue):
         if self.progress_wk:
             task_name = self._wk_name(wk_src, wk_num, wk_proxy)
             self.progress_wk["tasks"][task_name] = {
-                "task": self.progress_wk["pb"].add_task(task_name, filename="", completed=0, total=1, error=0, resume=0),
+                "task": self.progress_wk["pb"].add_task(task_name, filename="", completed=0, total=0, error=0, resume=0),
                 "update": None,
             }
             self.progress_wk_update(wk_src, wk_num, wk_proxy, refresh=True)
 
-    def progress_wk_update(self, wk_src, wk_num, wk_proxy, filename="", completed=0, total=1, error=0, resume=0, refresh=False):
+    def progress_wk_update(self, wk_src, wk_num, wk_proxy, filename="", completed=0, total=0, error=0, resume=0, refresh=False):
         if self.progress_wk:
             task_name = self._wk_name(wk_src, wk_num, wk_proxy)
             wk = self.progress_wk["tasks"][task_name]
@@ -551,10 +545,9 @@ class URLQueue_dl(URLQueue):
         return f"{self.NAME_PROGRESS}-{wk_src['name']}{wk_proxy['name']}{wk_num}"
 
     def __str__(self):
-        errors = ""
-        if self.stats["errors"] > 0:
-            errors = f" ({self.stats['errors']} errors)"
-        return f"downloaded {format_size(self.stats['recv_bytes'])}, {self.stats['recv_items']} items, progress {format_size(self.size['completed'])}/{format_size(self.size['total'])}, {len(self._done)}/{self.total_items()}{errors} items"
+        session = self.get_stats_session()
+        return (f"download session {format_size(session['size_completed'])}, {session['items_ok']} items {session['items_error']} errors, "
+                + f"download global {format_size(self.stats['size_completed'])}/{format_size(self.stats['size_total'])} {self.stats['items_ok']}/{self.items_total()} items {self.stats['items_error']} errors")
 
 #
 # Httpeat
@@ -564,6 +557,10 @@ class Httpeat():
     """ Httpeat class, containing indexer, downloader and maintainer tasks """
 
     def __init__(self, conf):
+        log.info(f"init session {conf['session_name']} at {now()}")
+        log.info(f"session directory : {conf['session_dir']}")
+        log.debug(f"log file : {conf['log_file']}")
+
         # create or load session and states
         if conf["session_new"]:
             # populate session directory
@@ -585,10 +582,10 @@ class Httpeat():
                 entry = URLQueue.FIELDS.copy()
                 if url_is_directory(url):
                     entry.update({"url": url, "type": "d"})
-                    state_idx.todo(entry, touch=not conf["no_index_touch"])
+                    state_idx.todo(entry, touch=not conf["no_index_touch"], init_load=True)
                 else:
                     entry.update({"url": url, "type": "f"})
-                    state_dl.todo(entry, touch=not conf["no_index_touch"])
+                    state_dl.todo(entry, touch=not conf["no_index_touch"], init_load=True)
             state_idx.save()
             state_dl.save()
 
@@ -630,6 +627,8 @@ class Httpeat():
         self.conf = conf
         self.state_dl = state_dl
         self.state_idx = state_idx
+        self.errors = list()
+        self.warnings = list()
 
     async def run(self):
         conf = self.conf
@@ -641,8 +640,6 @@ class Httpeat():
             return
 
         log.info(f"start session {conf['session_name']} at {now()}")
-        log.info(f"session directory : {conf['session_dir']}")
-        log.debug(f"log file : {conf['log_file']}")
         time_begin = time.monotonic()
 
         # start tasks
@@ -683,6 +680,7 @@ class Httpeat():
 
         except Exception as e:
             log.warning(f"Exception {e}")
+            self.errors.append(e)
 
         finally:
             task_maintainer.cancel()
@@ -701,7 +699,8 @@ class Httpeat():
         log.debug(f"log file : {conf['log_file']}")
         time_end = time.monotonic()
         elapsed = int(time_end - time_begin)
-        log.info(f"end session {conf['session_name']} at {now()} after {datetime.timedelta(seconds=elapsed)}")
+        log.info(f"end session {conf['session_name']} at {now()} after {datetime.timedelta(seconds=elapsed)} with {len(self.errors)} errors and {len(self.warnings)} warnings")
+        return len(self.errors)
 
     async def indexer(self):
         log.debug("indexer start")
@@ -715,17 +714,24 @@ class Httpeat():
                 state_idx.progress_init(conf["proxy_list"], conf["sources"])
 
             limits = httpx.Limits(max_connections=conf["tasks_count"])
-            # TODO for indexing we choose the first proxy, we should try to load balance
-            async with httpx.AsyncClient(proxy=conf["proxy_list"][0]["proxy_url"], limits=limits, verify=not conf["no_ssl_verify"], timeout=conf["timeout"], headers=conf["headers"]) as client:
+            clients = list()
+            for wk_proxy in conf["proxy_list"]:
+                client = httpx.AsyncClient(proxy=wk_proxy["proxy_url"], limits=limits, verify=not conf["no_ssl_verify"], timeout=conf["timeout"], headers=conf["headers"])
+                clients.append(client)
                 # start indexer tasks
-                for wk_num in range(conf["tasks_count"]):
-                    tsk = asyncio.create_task(self.indexer_worker(wk_num, client))
-                    tasks.append(tsk)
-                # wait for the index state queues to be empty
-                await state_idx.join()
+                for wk_src in conf["sources"]:
+                    for wk_num in range(conf["tasks_count"]):
+                        tsk = asyncio.create_task(self.indexer_worker(wk_src, wk_num, wk_proxy, client))
+                        tasks.append(tsk)
+            # wait for the index state queues to be empty
+            await state_idx.join()
+            # close httx clients
+            await asyncio.gather(*[client.aclose() for client in clients])
 
         except Exception as e:
             log.warning(f"indexer: Exception {e}")
+            log.debug(traceback.format_exc())
+            self.errors.append(e)
 
         finally:
             log.debug("indexer exit")
@@ -734,72 +740,74 @@ class Httpeat():
                 tsk.cancel()
             await asyncio.gather(*tasks, return_exceptions=True)
 
-    async def indexer_worker(self, wk_num, client):
+    async def indexer_worker(self, wk_src, wk_num, wk_proxy, client):
+    """ download to .<dir>.index.download
+        when complete, rename to .<dir>.index and parse """
+        wk_name = f"idx-{wk_src['name']}{wk_proxy['name']}{wk_num}"
         conf = self.conf
         state_idx = self.state_idx
         state_dl = self.state_dl
 
-        log.debug(f"idx-{wk_num} startup")
+        log.debug(f"{wk_name} startup")
         exiting = False
         while True:
-            dirent = await state_idx.get()
-            dirent["state"] = "progress"
-            url = dirent["url"]
-            url_print = url[len(conf["target_urls_prefix"]):]
             try:
+                entry = None
+                path_print = None
                 status = "error"
-                response = None
+                entry = await state_idx.get()
+                log.debug(f"{wk_name} {entry['url']}")
 
-                # request page
-                log.debug(f"index-{wk_num}    {url}")
-                # set download retry rules
-                response = None
-                async for attempt in AsyncRetrying(stop=stop_after_attempt(conf["retry_index_networkerror"]),
-                        wait=wait_random(0, 2),
-                        retry=retry_if_exception_type(httpx.TransportError),
-                        reraise=True):
-                    with attempt:
-                        # download page
-                        response = await client.get(url)
-                    if attempt.retry_state.outcome.failed:
-                        log.info(f"index-{wk_num} retry {attempt.retry_state.attempt_number} {url}")
-                log.debug(f"index-{wk_num}: received {response}")
-                if response:
-                    # parse page
-                    bs = BeautifulSoup(response.content, "lxml")
-                    if conf["index_debug"]:
-                        from IPython import embed; import nest_asyncio; nest_asyncio.apply(); embed(using='asyncio')
-                    entries = parse_httpindex(url, bs, wk_num)
-                    # queue URL entries
-                    if len(entries) > 0:
-                        for entry in entries:
-                            if entry["url"]:
-                                if url_is_directory(entry["url"]):
-                                    entry["type"] = "d"
-                                    state_idx.todo(entry, touch=not conf["no_index_touch"])
+                if wk_src["name"] not in ['A', ''] and entry["url"].find(wk_src["source"]) < 0:
+                    log.debug(f"{wk_name} url is not configured for this mirror, requeing")
+                    state_idx.todo(entry, entry["state"], requeue=True)
+                    state_idx.task_done()
+                    entry = None
+                else:
+                    content = None
+                    status_dl, path_print, path_finished = await self.download_file(state_idx, client, entry, wk_src, wk_num, wk_proxy, wk_name, prefix='.', extension=".index")
+
+                    if status_dl == "ok":
+                        log.debug(f"{wk_name} page received, parsing")
+                        content = path_finished.read_text()
+                        bs = BeautifulSoup(content, "lxml")
+                        if conf["index_debug"]:
+                            from IPython import embed; import nest_asyncio; nest_asyncio.apply(); embed(using='asyncio')
+                        for dl_entry in parse_httpindex(entry["url"], bs, wk_num):
+                            # queue entries for download
+                            if dl_entry["url"]:
+                                if url_is_directory(dl_entry["url"]):
+                                    dl_entry["type"] = "d"
+                                    state_idx.todo(dl_entry, touch=not conf["no_index_touch"])
                                 else:
-                                    entry["type"] = "f"
-                                    state_dl.todo(entry, touch=not conf["no_index_touch"])
+                                    dl_entry["type"] = "f"
+                                    state_dl.todo(dl_entry, touch=not conf["no_index_touch"])
+                        log.debug(f"{wk_name} page parsing done")
                         status = "ok"
 
             except asyncio.CancelledError as e:
-                log.debug(f"index-{wk_num}: canceled")
+                log.debug(f"{wk_name} canceled")
                 exiting = True
                 break
 
             except Exception as e:
-                log.warning(f"index-{wk_num}: Exception while indexing directory, requeing it : {e}")
+                log.warning(f"{wk_name} Exception while indexing directory, requeing it : {e}")
                 log.warning(traceback.format_exc())
                 if response:
-                    log.debug(response.content.decode())
+                    log.debug(decode())
+                self.warnings.append(e)
 
             finally:
-                log.info(f"index-{wk_num}    {status} {url_print}")
-                state_idx.done(dirent, status=status)
-                state_idx.progress_update()
-                state_dl.progress_update()
+                if entry:
+                    log.info(f"{wk_name} {status} {path_print}")
+                    state_idx.done(entry, status=status)
+                    state_idx.progress_update()
+                    state_dl.progress_update()
                 if not exiting:
+                    # sleeping is critically important even 0 seconds, to let other tasks get() from the queue
                     await sleepy(conf["wait"], status)
+
+        log.debug(f"{wk_name} exiting")
 
     async def downloader(self):
         log.debug("downloader start")
@@ -813,7 +821,7 @@ class Httpeat():
                 state_dl.progress_wk_init()
                 state_dl.progress_init(conf["proxy_list"], conf["sources"])
 
-            limits = httpx.Limits(max_connections=conf["tasks_count"] * len(conf["sources"]))
+            limits = httpx.Limits(max_connections=conf["tasks_count"] * len(conf["sources"]) * len(conf["proxy_list"]))
             clients = list()
             for wk_proxy in conf["proxy_list"]:
                 client = httpx.AsyncClient(proxy=wk_proxy["proxy_url"], limits=limits, verify=not conf["no_ssl_verify"], timeout=conf["timeout"], headers=conf["headers"])
@@ -833,137 +841,69 @@ class Httpeat():
 
         except Exception as e:
             log.warning(f"downloader: Exception {e}")
-            log.warning(traceback.format_exc())
+            log.debug(traceback.format_exc())
+            self.errors.append(e)
 
         finally:
             try:
                 log.debug("downloader exit")
-                state_dl.progress_update(refresh=True)
                 for tsk in tasks:
                     tsk.cancel()
                 await asyncio.gather(*tasks, return_exceptions=True)
+                state_dl.progress_update(refresh=True)
             except Exception as e:
                 log.warning(f"downloader error in cleanup: {e}") # TODO remove that try except, debug only
                 log.warning(traceback.format_exc())
 
     async def downloader_worker(self, wk_src, wk_num, wk_proxy, client):
+        """ download to <file>.download
+            when complete, rename to <file> """
         wk_name = f"dl-{wk_src['name']}{wk_proxy['name']}{wk_num}"
-        log.debug(f"{wk_name} startup : proxy {wk_proxy['proxy_url']}")
+        log.debug(f"{wk_name} startup : proxy {wk_proxy['proxy_url']} source {wk_src}")
         conf = self.conf
         state_dl = self.state_dl
 
         exiting = False
         while True:
-            entry = await state_dl.get()
-            status = "error"
             try:
-                #entry["state"] = "progress"
+                entry = None
+                path_print = None
                 status = "error"
-                filesize = 0
-                url = entry["url"]
-                # get local file path, check it's existence and create local directories
-                path_finished, path_tmp, path_print, url_print = url_to_path(url, conf["session_dir"], conf["target_urls_prefix"])
-                log.debug(f"{wk_name} {url}")
-                if path_finished.exists():
-                    status = "ok"
+                entry = await state_dl.get()
+                log.debug(f"{wk_name} {entry['url']}")
+
+                if wk_src["name"] not in ['A', ''] and entry["url"].find(wk_src["source"]) < 0:
+                    log.debug(f"{wk_name} url is not configured for this mirror, requeing")
+                    state_dl.todo(entry, entry["state"], requeue=True)
+                    state_dl.task_done()
+                    entry = None
                 else:
-                    try:
-                        filesize = path_tmp.stat().st_size
-                    except FileNotFoundError:
-                        if not path_tmp.parent.exists():
-                            path_tmp.parent.mkdir(parents=True)
-                    # check if we should skip the URL
-                    skip = skip_check(url, entry, conf["skip"])
-                    # check for file to be complete or skipped, or download it
-                    if entry["size"] and int(entry["size"]) > 0 and filesize == int(entry["size"]):
-                        log.debug(f"{wk_name} file is already fully downloaded")
-                        status = "ok"
-                    elif skip:
-                        log.info(f"{wk_name} skipped, matching rule {skip}")
-                        status = "skipped"
-                    else:
-                        if not conf["no_progress"]:
-                            state_dl.progress_wk_update(wk_src, wk_num, wk_proxy, path_finished.name, filesize, int(entry["size"]), 0, 0)
-                        # open temporary local file
-                        log.debug(f"{wk_name} writing to {path_tmp}")
-                        with path_tmp.open('ab') as fd:
-                            log.debug(f"{wk_name} HTTP GET")
-                            # prepare the download url depending on the source
-                            if wk_src["name"] not in ['A', '']:
-                                if url.find(wk_src["source"]) >= 0:
-                                    # replace original url by mirror information
-                                    url = url.replace(wk_src["source"], wk_src["mirror"])
-                                    log.debug(f"{wk_name} url to mirror : {url}")
-                                else:
-                                    # this url does not exist on the mirror that this worker is focused on, put it back in the queue
-                                    log.debug(f"{wk_name} url is not configured for this mirror, requeing")
-                                    state_dl.todo(entry, requeue=True)
-                            # TODO download_file(filepath_tmp, state_dl, conf["retry_dl_networkerror"], conf["no_progress"])
-                            # set download retry rules
-                            resume_number = 0
-                            async for attempt in AsyncRetrying(stop=stop_after_attempt(conf["retry_dl_networkerror"]),
-                                    wait=wait_random(0, 2),
-                                    retry=retry_if_exception_type(httpx.TransportError),
-                                    reraise=True):
-                                with attempt:
-                                    filesize = path_tmp.stat().st_size
-                                    headers = {'Range': f'bytes={filesize}-'} if filesize else None
-                                    # download file
-                                    received = 0
-                                    async with client.stream('GET', url, headers=headers) as response:
-                                        async for chunk in response.aiter_bytes():
-                                            status = "progress"
-                                            fd.write(chunk)
-                                            received += len(chunk)
-                                            if not conf["no_progress"]:
-                                                state_dl.size_ajust_completed(len(chunk))
-                                                state_dl.progress_update()
-                                                state_dl.progress_wk_update(wk_src, wk_num, wk_proxy, path_finished.name, filesize+received, int(entry["size"]), attempt.retry_state.attempt_number-1, resume_number)
-                                if attempt.retry_state.outcome.failed:
-                                    filesize_new = path_tmp.stat().st_size
-                                    if filesize_new > filesize:
-                                        # filesize has increased, use dedicated resume counter and don't count it as error
-                                        resume_number += 1
-                                        attempt.retry_state.attempt_number -= 1
-                                    filesize = filesize_new
-                                    if not conf["no_progress"]:
-                                        state_dl.progress_wk_update(wk_src, wk_num, wk_proxy, path_finished.name, filesize, int(entry["size"]), attempt.retry_state.attempt_number, resume_number)
-                                    log.debug(f"{wk_name} retry e-{attempt.retry_state.attempt_number} r-{resume_number} size {filesize} {path_tmp.name}")
-                        # file was fully downloaded, rename it to final path
-                        filesize = path_tmp.stat().st_size
-                        if not entry["size"] or filesize != int(entry["size"]):
-                            log.debug(f"{wk_name} updated size of downloaded file from {entry['size']} to {filesize}")
-                            state_dl.size_ajust_total(filesize - int(entry["size"]))
-                            entry["size"] = filesize
-                        log.debug(f"{wk_name} renaming to {path_finished}")
-                        path_tmp.rename(path_finished)
-                        if entry["date"]:
-                            d = dateutil.parser.parse(entry["date"])
-                            os.utime(path_finished, (d.timestamp(), d.timestamp()))
-                        status = "ok"
+                    filesize = 0
+                    status, path_print, path_finished = await self.download_file(state_dl, client, entry, wk_src, wk_num, wk_proxy, wk_name)
 
             except asyncio.CancelledError as e:
                 log.info(f"{wk_name} canceled")
                 exiting = True
                 break
 
-            except httpx.TransportError as e:
-                log.warning(f"{wk_name} transport error, requeing file : {type(e).__name__} {e} ({conf['retry_dl_networkerror']} previous transport errors)")
-
             except Exception as e:
                 log.warning(f"{wk_name} Exception while downloading file, requeing it : {e}")
                 log.warning(traceback.format_exc())
+                self.warnings.append(e)
 
             finally:
                 try:
-                    if status != "ok":
-                        size_print = f"{format_size(filesize)} / {format_size(int(entry['size']))}"
-                    else:
-                        size_print = format_size(int(entry['size']))
-                    log.info(f"{wk_name} {status} {path_print} ({size_print})")
-                    state_dl.done(entry, status)
-                    state_dl.progress_update()
+                    if entry:
+                        if status != "ok":
+                            size_print = f"{format_size(filesize)} / {format_size(entry['size'])}"
+                        else:
+                            size_print = format_size(entry['size'])
+                        log.info(f"{wk_name} {status} {path_print} ({size_print})")
+                        state_dl.done(entry, status)
+                        state_dl.progress_update()
                     if not exiting:
+                        # sleeping is critically important even 0 seconds, to let other tasks get() from the queue
+                        log.debug(f"{wk_name} sleeping {conf['wait']}")
                         await sleepy(conf["wait"], status)
                 except Exception as e:
                     log.warning(f"{wk_name} error in task cleanup: {e}") # TODO remove that try except, debug only
@@ -995,10 +935,113 @@ class Httpeat():
             except Exception as e:
                 log.warning(f"maintainer: Exception: {e}")
                 log.warning(traceback.format_exc())
+                self.exceptions.append(e)
 
             except asyncio.CancelledError as e:
                 log.debug(f"maintainer: canceled")
                 break
+
+        log.debug(f"maintainer: exit")
+
+    async def download_file(self, state, client, entry, wk_src, wk_num, wk_proxy, wk_name, prefix="", extension=""):
+        status = "error"
+        do_progress = not self.conf["no_progress"] and state == self.state_dl
+
+        # get local file path, check it's existence and create local directories
+        path_finished, path_tmp, path_print, url_print = url_to_path(entry["url"], self.conf["session_dir"], self.conf["target_urls_prefix"], prefix=prefix, extension=extension)
+        if path_finished.exists():
+            return "ok", path_print, path_finished
+
+        # check if we should skip the URL
+        skip = skip_check(entry, self.conf["skip"])
+        if skip:
+            log.info(f"{wk_name} skipped, matching rule {skip}")
+            return "skipped", path_print, path_finished
+
+        # check for file to be complete or download it
+        try:
+            filesize = path_tmp.stat().st_size
+        except FileNotFoundError:
+            if not path_tmp.parent.exists():
+                path_tmp.parent.mkdir(parents=True)
+        if entry["size"] > 0 and filesize == entry["size"]:
+            log.debug(f"{wk_name} file is already fully downloaded")
+            status = "ok"
+        else:
+            # download file
+
+            url = entry["url"]
+
+            # open temporary local file
+            log.debug(f"{wk_name} writing to {path_tmp}")
+            with path_tmp.open('w+b') as fd:
+                log.debug(f"{wk_name} HTTP GET")
+                fd.seek(0, 2) # seek at end of file
+
+                # prepare the download url depending on the source
+                if wk_src["name"] not in ['A', ''] and url.find(wk_src["source"]) >= 0:
+                    # replace original url by mirror information
+                    url = url.replace(wk_src["source"], wk_src["mirror"])
+                    log.debug(f"{wk_name} url to mirror : {url}")
+
+                # set download retry rules
+                resume_number = 0
+                try:
+                    async for attempt in AsyncRetrying(stop=stop_after_attempt(self.conf["retry_dl_networkerror"]),
+                            wait=wait_random(0, 2),
+                            retry=retry_if_exception_type(httpx.TransportError),
+                            reraise=True):
+                        with attempt:
+                            filesize = path_tmp.stat().st_size
+                            headers = {'Range': f'bytes={filesize}-'} if filesize else None
+                            # download file
+                            received = 0
+                            async with client.stream('GET', url, headers=headers) as response:
+                                log.debug(f"{wk_name} stream h={headers} : {response}")
+                                if 'content-range' not in response.headers:
+                                    log.debug(f"{wk_name} server does not accept ranges, empty current file")
+                                    fd.seek(0)
+                                    filesize = 0
+                                async for chunk in response.aiter_bytes():
+                                    fd.write(chunk)
+                                    received += len(chunk)
+                                    status = "progress"
+                                    if do_progress:
+                                        state.size_ajust_completed(len(chunk))
+                                        state.progress_update()
+                                        state.progress_wk_update(wk_src, wk_num, wk_proxy, path_print, filesize+received, int(entry["size"]), attempt.retry_state.attempt_number-1, resume_number)
+                        if attempt.retry_state.outcome.failed:
+                            filesize_new = path_tmp.stat().st_size
+                            if filesize_new > filesize:
+                                # filesize has increased, use dedicated resume counter and don't count it as error
+                                resume_number += 1
+                                attempt.retry_state.attempt_number -= 1
+                            filesize = filesize_new
+                            if do_progress:
+                                state.progress_wk_update(wk_src, wk_num, wk_proxy, path_print, filesize, entry["size"], attempt.retry_state.attempt_number, resume_number)
+                            log.debug(f"{wk_name} retry e-{attempt.retry_state.attempt_number} r-{resume_number} size {filesize} {path_tmp.name}")
+                except httpx.TransportError as e:
+                    log.warning(f"{wk_name} transport error, requeing file : {type(e).__name__} {e} ({self.conf['retry_dl_networkerror']} previous transport errors)")
+                else:
+                    status = "ok"
+
+        if status == "ok":
+            # file was fully downloaded, rename it to final path
+            filesize = path_tmp.stat().st_size
+            if filesize != entry["size"]:
+                log.debug(f"{wk_name} updated size of downloaded file from {entry['size']} to {filesize}")
+                state.size_ajust_total(filesize - (entry["size"] if entry["size"] > 0 else 0))
+                entry["size"] = filesize
+            log.debug(f"{wk_name} renaming to {path_finished}")
+            path_tmp.rename(path_finished)
+            if entry["date"]:
+                d = dateutil.parser.parse(entry["date"])
+                os.utime(path_finished, (d.timestamp(), d.timestamp()))
+
+        if do_progress:
+            state.progress_wk_update(wk_src, wk_num, wk_proxy, path_print, filesize, entry["size"], attempt.retry_state.attempt_number, resume_number)
+
+        return status, path_print, path_finished
 
 #
 # main
@@ -1066,7 +1109,7 @@ def main():
             parser.error(f"cannot specify proxies when session directory already exists. see {args.session_name}/proxies.txt")
     try:
         # check skip rules arguments
-        skip_check("", {"size": 0}, args.skip)
+        skip_check({"url": "", "size": 0}, args.skip)
         # check mirror definition arguments
         mirrors_list(conf["mirror"])
         # check proxies definition arguments
@@ -1097,7 +1140,7 @@ def main():
 
     #asyncio.run(session(conf))
     h = Httpeat(conf)
-    asyncio.run(h.run())
+    return asyncio.run(h.run())
 
 if __name__ == "__main__":
     sys.exit(main())

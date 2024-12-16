@@ -128,7 +128,7 @@ live progress:
 # Change log / todo list
 
 ```
-v0.1
+v0.1 : introduce robust retry capabilities and stability improvements
 - while downloading store <file>.download, then rename when done
 - improve index parser capability to handle unknown pages
 - test that the URL "unquote" to path works, in dowload mode
@@ -143,7 +143,7 @@ v0.1
 - maybe log file with higher log level and timestamp ? or at least time for start and end ? (last option implemented)
 - prevent SIGINT during CSV state file saving
 
-v0.2
+v0.2 : download from multiple mirrors and proxies, better progress bar, various fixes
 - hide begining of URL on info print when single root prefix is identified
 - unit tests for network errors
 - fix progress update of indexer in download-only mode: store progress and it's task id in State_*
@@ -158,12 +158,12 @@ v0.2
 - display file size after path after download completed
 - handle file names len > 255
 - create all .download empty files during indexing, option to disable
-- download from multiple (2?) mirrors
+- download from multiple mirrors
 - fix bug with state_dl size progress, grows much too fast
 - download from multiple proxies
 - configurable user agent
 
-v0.3
+v0.3 : first public version, various fixes
 - fix 'rich' flickering on dl workers progress, by creating Group after all progress add_task() are performed.
 - fix download size estimation for completed and total, by correctly handling in-progress files on startup.
 - fix handling of SIGTERM, by dedirecing raising SIGINT
@@ -175,11 +175,27 @@ v0.3
 - package with pyproject.toml
 - public version
 
+TODO v0.4 - indexing supports resume, proxies and mirrors + heavy internal refactor and better error handling
+- fix error reporting in indexer table parsing
+- fix error count statistic display at end of session
+- refactor session into Httpeat object to share objects easily between downloader and indexer
+- support resume in index_worker(), using common Httpeat.download_file() function with download_worker()
+- store index pages while indexing in .<dirname>.index
+- fix display of completeted items to show only successfully indexed/downloaded items
+- report errors and warnings count at end of session
+- return process error code as per error count
+- support proxies and mirros in indexing
+TODO fix handling of SIGTERM and SIGINT
+TODO fix Exception accounting and reporting
+TODO fix (again) flickering of progress bar. try rich Table
+     see https://github.com/Textualize/rich/blob/master/examples/live_progress.py
+TODO when size is not found in index, perform HEAD requests in indexer
+
 TODO v1.0
 TODO cleanup and review
 
 TODO v1.1
-TODO when size is not found in index, perform HEAD requests in indexer
-TODO directories mtime from index
+TODO set directories mtime from index
 TODO profile code to see if we can improve performance with large download lists / CSV
+TODO download single file over multiple mirrors and proxies ?
 ```
