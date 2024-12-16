@@ -13,10 +13,17 @@ assert_states_diff() {
 set -e
 
 DIR="$(realpath $(dirname $0))"
+PRE=""
+POST=""
 cd $DIR
 tc=0
 
-[ ! -z "$1" ] && [ "$1" -eq "$1" ] && test=$1 && shift
+if [ ! -z "$1" ]; then
+	[ "$1" = "-d" ] && PRE="py-spy record -f speedscope" && POST="--" && shift
+	[ "$1" -eq "$1" ] && test=$1 && shift
+fi
+echo PRE=$PRE
+echo POST=$POST
 
 if [ "$test" = "1" -o -z "$test" ]; then
 	s=test_1
@@ -43,11 +50,13 @@ fi
 
 if [ "$test" = "3" -o -z "$test" ]; then
 	s=test_3
-	echo "[-] $s: interrupt and resume as index and download an nginx style HTTP index"
+	echo "[-] $s: interrupt and resume indexing and downloading an nginx style HTTP index"
 	trace cd /tmp
 	trace rm -rf $s
-	trace timeout 1 $DIR/../httpeat.py $@ $s https://ferme.ydns.eu/antennes/bands/2024-10/ ||true
-	trace timeout 2 $DIR/../httpeat.py $@ $s ||true
+	trace timeout 2 $DIR/../httpeat.py $@ $s https://ferme.ydns.eu/antennes/bands/2024-10/ ||true
+	for i in $(seq 1 20); do
+		trace timeout 0.5 $DIR/../httpeat.py $@ $s ||true
+	done
 	trace $DIR/../httpeat.py $@ $s
 	assert_states_diff
 	trace diff -r -u $DIR/expect_$s/data/ $s/data/
@@ -56,12 +65,14 @@ if [ "$test" = "3" -o -z "$test" ]; then
 fi
 
 if [ "$test" = "4" -o -z "$test" ]; then
-	echo "[-] test_4: using mirrors, interrupt and resume as index and download an nginx style HTTP index"
+	echo "[-] test_4: using mirrors, interrupt and resume indexing and downloading an nginx style HTTP index"
 	s=test_4
 	trace cd /tmp
 	trace rm -rf $s
-	trace timeout 1 $DIR/../httpeat.py $@ -m "https://ferme.ydns.eu/ant/ mirrors https://ferme.ydns.eu/antennes/" $s https://ferme.ydns.eu/antennes/bands/2024-10/ ||true
-	trace timeout 2 $DIR/../httpeat.py $@ $s ||true
+	trace timeout 2 $DIR/../httpeat.py $@ -m "https://ferme.ydns.eu/ant/ mirrors https://ferme.ydns.eu/antennes/" $s https://ferme.ydns.eu/antennes/bands/2024-10/ ||true
+	for i in $(seq 1 20); do
+		trace timeout 0.5 $DIR/../httpeat.py $@ $s ||true
+	done
 	trace $DIR/../httpeat.py $@ $s
 	assert_states_diff
 	trace diff -r -u $DIR/expect_$s/data/ $s/data/
@@ -69,6 +80,22 @@ if [ "$test" = "4" -o -z "$test" ]; then
 	tc=$(($tc+1))
 fi
 
-[ $tc -eq 0 ] && echo "usage: $0 [1-4] [<httpeat_arguments>]" && exit 1
+if [ "$test" = "5" -o -z "$test" ]; then
+	s=test_5
+	echo "[-] $s: interrupt and resume indexing an nginx style HTTP index"
+	trace cd /tmp
+	trace rm -rf $s
+	trace timeout 2 $DIR/../httpeat.py -i $@ $s https://ferme.ydns.eu/antennes/split/ ||true
+	for i in $(seq 1 20); do
+		trace timeout 1 $DIR/../httpeat.py -i $@ $s ||true
+	done
+	trace $PRE $DIR/../httpeat.py $POST -i $@ $s
+	assert_states_diff
+	trace diff -r -u $DIR/expect_$s/data/ $s/data/
+	echo "[*] $s OK"
+	tc=$(($tc+1))
+fi
+
+[ $tc -eq 0 ] && echo "usage: $0 [1-5] [<httpeat_arguments>]" && exit 1
 
 echo "[*] all ($tc) network tests OK, success"

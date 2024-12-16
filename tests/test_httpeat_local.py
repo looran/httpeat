@@ -53,15 +53,25 @@ def httpeat_conf(request):
 
     yield conf
 
-def assert_local_files(httpeat_conf, exists=True):
+def assert_local_files(httpeat_conf, exists=True, isempty=False):
     print(f"test local file exists {exists}")
     for file in httpeat_conf["test_files"]:
         path = httpeat_conf["session_dir"] / "data" / file
         print(f"test {path}")
         if exists:
             assert path.exists()
+            if isempty:
+                assert path.stat().st_size == 0
+            else:
+                assert path.stat().st_size > 0
         else:
             assert not path.exists()
+
+def assert_state_dl_file(httpeat_conf, filenum, expected_state):
+    print(f"check state of download in CSV: filenum {filenum} expected_state {expected_state}")
+    f_state_dl = httpeat_conf["session_dir"] / "state_download.csv"
+    csv_state_dl = list(csv.DictReader(f_state_dl.open()))
+    assert csv_state_dl[filenum]["state"] == expected_state
 
 class Test_httpx:
     @pytest.mark.asyncio
@@ -73,16 +83,21 @@ class Test_httpx:
 @pytest.mark.asyncio
 class Test_httpeat_download:
     @pytest.mark.parametrize("httpeat_conf", [
+        # download 1 file
         { "target_urls": ["https://host1/a/b.img"],
             "test_files": [ "host1/a/b.img" ], },
+        # download 2 file
         { "target_urls": ["https://host1/a/b.img", "https://host1/a/c.img"],
             "test_files": [ "host1/a/b.img", "host1/a/c.img" ], },
         ], indirect=True)
     @pytest.mark.httpx_mock(can_send_already_matched_responses=True)
     async def test_dl_ok(self, httpx_mock, httpeat_conf):
-        httpx_mock.add_response()
-        await Httpeat(httpeat_conf).run()
+        httpx_mock.add_response(content=b"toto")
+        h = Httpeat(httpeat_conf)
+        assert await h.run() == 0
+        assert len(h.warnings) == 0
         assert_local_files(httpeat_conf)
+        assert_state_dl_file(httpeat_conf, 0, "ok")
 
     @pytest.mark.parametrize("httpeat_conf", [
         # JRQN6PSE = b32encode(md5(name.encode()).digest()).decode()[:8]
@@ -91,46 +106,65 @@ class Test_httpeat_download:
         ], indirect=True)
     @pytest.mark.httpx_mock(can_send_already_matched_responses=True)
     async def test_dl_filename_too_long_ok(self, httpx_mock, httpeat_conf):
-        httpx_mock.add_response()
-        await Httpeat(httpeat_conf).run()
+        httpx_mock.add_response(content=b"toto")
+        h = Httpeat(httpeat_conf)
+        assert await h.run() == 0
         assert_local_files(httpeat_conf)
+        assert_state_dl_file(httpeat_conf, 0, "ok")
 
     @pytest.mark.parametrize("httpeat_conf", [
         { "target_urls": ["https://host1/a/b.img"],
             "test_files": [ "host1/a/b.img" ], },
         ], indirect=True)
-    async def test_dl_err_readtimeout(self, httpx_mock: HTTPXMock, httpeat_conf):
+    async def test_dl_err_readtimeout_2_success(self, httpx_mock: HTTPXMock, httpeat_conf):
         httpx_mock.add_exception(httpx.ReadTimeout("Unable to read within timeout"))
         httpx_mock.add_exception(httpx.ReadTimeout("Unable to read within timeout"))
-        httpx_mock.add_response()
-        await Httpeat(httpeat_conf).run()
+        httpx_mock.add_response(content=b"toto")
+        h = Httpeat(httpeat_conf)
+        assert await h.run() == 0
         assert_local_files(httpeat_conf)
+        assert_state_dl_file(httpeat_conf, 0, "ok")
 
     @pytest.mark.parametrize("httpeat_conf", [
         { "target_urls": ["https://host1/a/b.img"],
             "test_files": [ "host1/a/b.img" ], },
         ], indirect=True)
-    async def test_dl_err_remoteprotocolerror_2(self, httpx_mock: HTTPXMock, httpeat_conf):
+    async def test_dl_err_remoteprotocolerror_2_success(self, httpx_mock: HTTPXMock, httpeat_conf):
         httpx_mock.add_exception(httpx.RemoteProtocolError("peer closed connection"))
         httpx_mock.add_exception(httpx.RemoteProtocolError("peer closed connection"))
-        httpx_mock.add_response()
-        await Httpeat(httpeat_conf).run()
+        httpx_mock.add_response(content=b"toto")
+        h = Httpeat(httpeat_conf)
+        assert await h.run() == 0
         assert_local_files(httpeat_conf)
+        assert_state_dl_file(httpeat_conf, 0, "ok")
 
     @pytest.mark.parametrize("httpeat_conf", [
         { "target_urls": ["https://host1/a/b.img"],
             "test_files": [ "host1/a/b.img" ], },
         ], indirect=True)
     @pytest.mark.httpx_mock(can_send_already_matched_responses=True)
-    async def test_dl_err_remoteprotocolerror_fails(self, httpx_mock: HTTPXMock, httpeat_conf):
+    async def test_dl_err_transporterror_fails(self, httpx_mock: HTTPXMock, httpeat_conf):
         httpx_mock.add_exception(httpx.RemoteProtocolError("peer closed connection"))
         httpeat_conf["retry_dl_networkerror"] = 0
-        httpeat_conf["retry_global_error"] = 1
-        await Httpeat(httpeat_conf).run()
-        assert_local_files(httpeat_conf, False)
-        # check state of download in CSV
-        f_state_dl = httpeat_conf["session_dir"] / "state_download.csv"
-        assert list(csv.DictReader(f_state_dl.open()))[0]["state"] == "error"
+        httpeat_conf["retry_global_error"] = 0
+        h = Httpeat(httpeat_conf)
+        assert await h.run() == 0
+        assert_local_files(httpeat_conf, exists=False)
+        assert_state_dl_file(httpeat_conf, 0, "error")
+
+    @pytest.mark.parametrize("httpeat_conf", [
+        { "target_urls": ["https://host1/a/b.img"],
+            "test_files": [ "host1/a/b.img" ], },
+        ], indirect=True)
+    @pytest.mark.httpx_mock(can_send_already_matched_responses=True)
+    async def test_dl_err_httpstatuserror_fails(self, httpx_mock: HTTPXMock, httpeat_conf):
+        httpx_mock.add_exception(httpx.HTTPStatusError("err", request="req", response=""))
+        httpeat_conf["retry_dl_networkerror"] = 0
+        httpeat_conf["retry_global_error"] = 0
+        h = Httpeat(httpeat_conf)
+        assert await h.run() == 0
+        assert_local_files(httpeat_conf, exists=False)
+        assert_state_dl_file(httpeat_conf, 0, "error")
 
 @pytest.mark.asyncio
 class Test_httpeat_download_mirrors:
@@ -147,10 +181,12 @@ class Test_httpeat_download_mirrors:
             "test_files": [ "host1/a/b.img", "host2/pub/a/b2.img"], },
         ], indirect=True)
     async def test_dl_mirror_ok(self, httpx_mock, httpeat_conf):
-        httpx_mock.add_response(url="https://host1/a/b.img")
-        httpx_mock.add_response(url="https://host2/pub/a/b2.img")
-        await Httpeat(httpeat_conf).run()
+        httpx_mock.add_response(url="https://host1/a/b.img", content=b"toto")
+        httpx_mock.add_response(url="https://host2/pub/a/b2.img", content=b"toto")
+        h = Httpeat(httpeat_conf)
+        assert await h.run() == 0
         assert_local_files(httpeat_conf)
+        assert_state_dl_file(httpeat_conf, 0, "ok")
 
 @pytest.mark.asyncio
 class Test_httpeat_download_proxies:
@@ -161,10 +197,12 @@ class Test_httpeat_download_proxies:
             "test_files": [ "host1/a/b.img", "host1/a/b2.img"], },
         ], indirect=True)
     async def test_dl_1proxy_ok(self, httpx_mock, httpeat_conf):
-        httpx_mock.add_response(proxy_url="http://proxy1:3000/", url="https://host1/a/b.img")
-        httpx_mock.add_response(proxy_url="http://proxy1:3000/", url="https://host1/a/b2.img")
-        await Httpeat(httpeat_conf).run()
+        httpx_mock.add_response(proxy_url="http://proxy1:3000/", url="https://host1/a/b.img", content=b"toto")
+        httpx_mock.add_response(proxy_url="http://proxy1:3000/", url="https://host1/a/b2.img", content=b"toto")
+        h = Httpeat(httpeat_conf)
+        assert await h.run() == 0
         assert_local_files(httpeat_conf)
+        assert_state_dl_file(httpeat_conf, 0, "ok")
 
     @pytest.mark.parametrize("httpeat_conf", [
         # test with 2 URLs, one should go to it's own proxy since we have a single worker (tasks_count) per proxy
@@ -178,10 +216,12 @@ class Test_httpeat_download_proxies:
             "test_files": [ "host1/a/b.img", "host1/a/b2.img"], },
         ], indirect=True)
     async def test_dl_2proxy_ok(self, httpx_mock, httpeat_conf):
-        httpx_mock.add_response(proxy_url="http://proxy1:3000/", url="https://host1/a/b.img")
-        httpx_mock.add_response(proxy_url="http://proxy2:3000/", url="https://host1/a/b2.img")
-        await Httpeat(httpeat_conf).run()
+        httpx_mock.add_response(proxy_url="http://proxy1:3000/", url="https://host1/a/b.img", content=b"toto")
+        httpx_mock.add_response(proxy_url="http://proxy2:3000/", url="https://host1/a/b2.img", content=b"toto")
+        h = Httpeat(httpeat_conf)
+        assert await h.run() == 0
         assert_local_files(httpeat_conf)
+        assert_state_dl_file(httpeat_conf, 0, "ok")
 
 @pytest.mark.asyncio
 @pytest.mark.filterwarnings("ignore:The 'strip_cdata' option of HTMLParser():DeprecationWarning")
@@ -193,21 +233,25 @@ class Test_httpeat_index:
     async def test_index(self, httpx_mock: HTTPXMock, httpeat_conf):
         httpx_mock.add_response(url="https://host1/a/",
                 html="<body><a href='toto.png'/></body>")
-        httpx_mock.add_response(url="https://host1/a/toto.png")
-        await Httpeat(httpeat_conf).run()
+        httpx_mock.add_response(url="https://host1/a/toto.png", content=b"toto")
+        h = Httpeat(httpeat_conf)
+        assert await h.run() == 0
         assert_local_files(httpeat_conf)
+        assert_state_dl_file(httpeat_conf, 0, "ok")
 
     @pytest.mark.parametrize("httpeat_conf", [
         { "target_urls": ["https://host1/a/"],
             "test_files": [ "host1/a/toto.png" ], },
         ], indirect=True)
-    async def test_index_err_readtimeout(self, httpx_mock: HTTPXMock, httpeat_conf):
+    async def test_index_err_readtimeout_success(self, httpx_mock: HTTPXMock, httpeat_conf):
         httpx_mock.add_exception(httpx.ReadTimeout("Unable to read within timeout"))
         httpx_mock.add_response(url="https://host1/a/",
                 html="<body><a href='toto.png'/></body>")
-        httpx_mock.add_response()
-        await Httpeat(httpeat_conf).run()
+        httpx_mock.add_response(content=b"toto")
+        h = Httpeat(httpeat_conf)
+        assert await h.run() == 0
         assert_local_files(httpeat_conf)
+        assert_state_dl_file(httpeat_conf, 0, "ok")
 
 @pytest.mark.asyncio
 @pytest.mark.filterwarnings("ignore:The 'strip_cdata' option of HTMLParser():DeprecationWarning")
@@ -223,9 +267,12 @@ class Test_httpeat_options:
         ], indirect=True)
     async def test_skip_rules_dl_size(self, httpx_mock: HTTPXMock, httpeat_conf):
         httpx_mock.add_response(url="https://host1/a/", html=self.INDEX)
-        httpx_mock.add_response(url="https://host1/a/toto.png")
-        await Httpeat(httpeat_conf).run()
+        httpx_mock.add_response(url="https://host1/a/toto.png", content=b"toto")
+        h = Httpeat(httpeat_conf)
+        assert await h.run() == 0
         assert_local_files(httpeat_conf)
+        assert_state_dl_file(httpeat_conf, 0, "skipped")
+        assert_state_dl_file(httpeat_conf, 1, "ok")
 
     @pytest.mark.parametrize("httpeat_conf", [
         { "target_urls": ["https://host1/a/"],
@@ -233,8 +280,9 @@ class Test_httpeat_options:
             "skip": ["dl-path:.*bibi.*", "dl-path:.*toto.*"]},
         ], indirect=True)
     async def test_skip_rules_dl_path_2(self, httpx_mock: HTTPXMock, httpeat_conf):
-        httpx_mock.add_response(url="https://host1/a/", html=self.INDEX)
-        await Httpeat(httpeat_conf).run()
+        httpx_mock.add_response(url="https://host1/a/", html=self.INDEX, content=b"toto")
+        h = Httpeat(httpeat_conf)
+        assert await h.run() == 0
         assert_local_files(httpeat_conf)
 
     @pytest.mark.parametrize("httpeat_conf", [
@@ -258,9 +306,66 @@ class Test_httpeat_options:
         else:
             ua = httpeat_conf["user_agent"]
         print(f"matching user agent: {ua}")
-        httpx_mock.add_response(url="https://host1/a/b.img", match_headers={'User-Agent': ua})
-        await Httpeat(httpeat_conf).run()
+        httpx_mock.add_response(url="https://host1/a/b.img", match_headers={'User-Agent': ua}, content=b"toto")
+        h = Httpeat(httpeat_conf)
+        assert await h.run() == 0
         assert_local_files(httpeat_conf)
+        assert_state_dl_file(httpeat_conf, 0, "ok")
+
+@pytest.mark.asyncio
+class Test_httpeat_progress:
+    @pytest.mark.parametrize("httpeat_conf", [
+        { "target_urls": ["https://host1/a/toto.png"],
+            "test_files": [ "host1/a/toto.png" ],
+            "no_progress": False }
+        ], indirect=True)
+    async def test_progress_dl(self, httpx_mock: HTTPXMock, httpeat_conf):
+        httpx_mock.add_response(url="https://host1/a/toto.png", content=b"toto")
+        h = Httpeat(httpeat_conf)
+        assert await h.run() == 0
+        assert_local_files(httpeat_conf)
+        assert_state_dl_file(httpeat_conf, 0, "ok")
+        # check state_dl
+        assert h.state_dl.stats["size_completed"] == 4
+        assert h.state_dl.stats["size_total"] == 4
+        assert h.state_dl.stats["items_ok"] == 1
+        assert h.state_dl.stats["items_error"] == 0
+        assert h.state_dl.progress['pb'].tasks[0].finished == True
+        assert h.state_dl.progress['pb'].tasks[0].completed == 4
+        assert h.state_dl.progress['pb'].tasks[0].total == 4
+        assert h.state_dl.progress['pb'].tasks[0].fields == {'items_total': 1, 'items_completed': 1, 'items_error': 0}
+
+    @pytest.mark.filterwarnings("ignore:The 'strip_cdata' option of HTMLParser():DeprecationWarning")
+    @pytest.mark.parametrize("httpeat_conf", [
+        { "target_urls": ["https://host1/a/"],
+            "test_files": [ "host1/a/toto.png" ],
+            "no_progress": False }
+        ], indirect=True)
+
+    async def test_progress_index(self, httpx_mock: HTTPXMock, httpeat_conf):
+        httpx_mock.add_response(url="https://host1/a/",
+                html="<body><a href='toto.png'/></body>")
+        httpx_mock.add_response(url="https://host1/a/toto.png", content=b"toto")
+        h = Httpeat(httpeat_conf)
+        assert await h.run() == 0
+        assert_local_files(httpeat_conf)
+        assert_state_dl_file(httpeat_conf, 0, "ok")
+        # check state_idx
+        assert h.state_idx.stats["items_ok"] == 1
+        assert h.state_idx.stats["items_error"] == 0
+        assert h.state_idx.progress['pb'].tasks[0].finished == True
+        assert h.state_idx.progress['pb'].tasks[0].completed == 1
+        assert h.state_idx.progress['pb'].tasks[0].total == 1
+        assert h.state_idx.progress['pb'].tasks[0].fields == {'items_error': 0}
+        # check state_dl
+        assert h.state_dl.stats["size_completed"] == 4
+        assert h.state_dl.stats["size_total"] == 4
+        assert h.state_dl.stats["items_ok"] == 1
+        assert h.state_dl.stats["items_error"] == 0
+        assert h.state_dl.progress['pb'].tasks[0].finished == True
+        assert h.state_dl.progress['pb'].tasks[0].completed == 4
+        assert h.state_dl.progress['pb'].tasks[0].total == 4
+        assert h.state_dl.progress['pb'].tasks[0].fields == {'items_total': 1, 'items_completed': 1, 'items_error': 0}
 
 if __name__ == '__main__':
     sys.exit(pytest.main())
@@ -271,7 +376,7 @@ if __name__ == '__main__':
     #    response = httpx.Response(
     #        status_code=200, content=b'toto',
     #    )
-    #    print(f"XXX headers {response.headers}")
+    #    print(f"headers {response.headers}")
     #    response.headers['content-length'] = "400"
     #    return response
     async def simulate_network_error(request: httpx.Request):
