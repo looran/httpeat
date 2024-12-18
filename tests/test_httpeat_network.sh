@@ -53,9 +53,10 @@ if [ "$test" = "3" -o -z "$test" ]; then
 	echo "[-] $s: interrupt and resume indexing and downloading an nginx style HTTP index"
 	trace cd /tmp
 	trace rm -rf $s
-	trace timeout 2 $DIR/../httpeat.py $@ $s https://ferme.ydns.eu/antennes/bands/2024-10/ ||true
+	trace timeout 1 $DIR/../httpeat.py $@ $s https://ferme.ydns.eu/antennes/bands/2024-10/ ||true
 	for i in $(seq 1 20); do
 		trace timeout 0.5 $DIR/../httpeat.py $@ $s ||true
+		sleep 0.01
 	done
 	trace $DIR/../httpeat.py $@ $s
 	assert_states_diff
@@ -69,9 +70,10 @@ if [ "$test" = "4" -o -z "$test" ]; then
 	s=test_4
 	trace cd /tmp
 	trace rm -rf $s
-	trace timeout 2 $DIR/../httpeat.py $@ -m "https://ferme.ydns.eu/ant/ mirrors https://ferme.ydns.eu/antennes/" $s https://ferme.ydns.eu/antennes/bands/2024-10/ ||true
+	trace timeout 1 $DIR/../httpeat.py $@ -m "https://ferme.ydns.eu/ant/ mirrors https://ferme.ydns.eu/antennes/" $s https://ferme.ydns.eu/antennes/bands/2024-10/ ||true
 	for i in $(seq 1 20); do
 		trace timeout 0.5 $DIR/../httpeat.py $@ $s ||true
+		sleep 0.01
 	done
 	trace $DIR/../httpeat.py $@ $s
 	assert_states_diff
@@ -85,9 +87,10 @@ if [ "$test" = "5" -o -z "$test" ]; then
 	echo "[-] $s: interrupt and resume indexing an nginx style HTTP index"
 	trace cd /tmp
 	trace rm -rf $s
-	trace timeout 2 $DIR/../httpeat.py -i $@ $s https://ferme.ydns.eu/antennes/split/ ||true
+	trace timeout 1 $DIR/../httpeat.py -i $@ $s https://ferme.ydns.eu/antennes/split/ ||true
 	for i in $(seq 1 20); do
 		trace timeout 1 $DIR/../httpeat.py -i $@ $s ||true
+		sleep 0.01
 	done
 	trace $PRE $DIR/../httpeat.py $POST -i $@ $s
 	assert_states_diff
