@@ -113,10 +113,6 @@ log = logging.getLogger("httpeat")
 # Utilities
 #
 
-def raise_sigint(signum, frame):
-    log.debug("catched SIGTERM, sending SIGINT")
-    signal.raise_signal(signal.SIGINT)
-
 def now():
     return time.strftime('%Y-%m-%d %H:%M:%S %Z', time.localtime())
 
@@ -204,7 +200,7 @@ def proxies_list(pconf, tasks_count):
     return proxies
 
 def parse_httpindex(dirurl, bs, wk_num) -> list:
-    """ parse an HTTP index page """
+    """ parse an HTTP index page, and return list of url entries """
 
     def _get_url(dirurl, href):
         """ ensure that url stays within parent """
@@ -411,8 +407,6 @@ class URLQueue(asyncio.Queue):
 
     def save(self):
         log.debug(f"{self.NAME}: saving to {self.path}")
-        # disable keyboard interrupt to avoid file corruption
-        sigint_handler = signal.signal(signal.SIGINT, signal.SIG_IGN)
         # keep a backup
         if self.path.exists():
             self.path.rename(str(self.path) + ".old")
@@ -426,8 +420,6 @@ class URLQueue(asyncio.Queue):
                         # duplicate entry to avoid changing original entry
                         entry = {k: v for k, v in entry.items() if k != "err"}
                     writer.writerow(entry)
-        # restore keyboard interrupt
-        signal.signal(signal.SIGINT, sigint_handler)
 
     def size_ajust_total(self, diff):
         self.stats["size_total"] += diff
@@ -627,13 +619,26 @@ class Httpeat():
         self.conf = conf
         self.state_dl = state_dl
         self.state_idx = state_idx
+        self.workers = list()
         self.errors = list()
         self.warnings = list()
+
+    async def shutdown_workers(self, signal=None):
+        if signal:
+            log.warning(f"interrupted, received signal {signal}")
+        log.debug("shutdown workers")
+        for task in self.workers:
+            if not task.done():
+                task.cancel()
+        await asyncio.gather(*self.workers, return_exceptions=True)
 
     async def run(self):
         conf = self.conf
         state_idx = self.state_idx
         state_dl = self.state_dl
+        loop = asyncio.get_event_loop()
+        for sig in [signal.SIGTERM, signal.SIGINT]:
+            loop.add_signal_handler(sig, lambda sig=sig: asyncio.create_task(self.shutdown_workers(sig)))
 
         if state_idx.empty() and state_dl.empty():
             log.info("nothing to do")
@@ -641,60 +646,61 @@ class Httpeat():
 
         log.info(f"start session {conf['session_name']} at {now()}")
         time_begin = time.monotonic()
-
-        # start tasks
         task_indexer = None
         task_downloader = None
-        # start indexer
-        if not conf["download_only"]:
-            task_indexer = asyncio.create_task(self.indexer())
-        # start downloader
-        if not conf["index_only"]:
-            task_downloader = asyncio.create_task(self.downloader())
-        # start queue maintainer: save to CSV and update progress periodicaly
-        task_maintainer = asyncio.create_task(self.maintainer())
 
-        # setup rich live display to show progress
-        pbars = None
-        if not conf["no_progress"]:
-            log.debug("starting progress bars")
-            pblist = list()
-            if not conf["index_only"]:
-                pblist.extend(await state_dl.progress_get_renderables())
-            if not conf["download_only"]:
-                pblist.extend(await state_idx.progress_get_renderables())
-            pbars = Live(Group(*pblist))
-            theme = dict.fromkeys(["bar.complete", "bar.pulse", "bar.finished", "progress.percentage", "progress.description", "progress.filesize", "progress.filesize.total", "progress.download", "progress.elapsed", "progress.remaining", "progress.data.speed" ], "default")
-            theme["bar.back"] = "conceal" # TODO may not work in every terminal, from documentation https://rich.readthedocs.io/en/latest/style.html
-            pbars.console.push_theme(Theme(theme))
-
-        # wait for tasks to finish
         try:
+            # start indexer
+            if not conf["download_only"]:
+                task_indexer = asyncio.create_task(self.indexer())
+                self.workers.append(task_indexer)
+            # start downloader
+            if not conf["index_only"]:
+                task_downloader = asyncio.create_task(self.downloader())
+                self.workers.append(task_downloader)
+            # start queue maintainer: save to CSV and update progress periodicaly
+            task_maintainer = asyncio.create_task(self.maintainer())
+            self.workers.append(task_maintainer)
+
+            # setup rich live display to show progress
+            pbars = None
+            if not conf["no_progress"]:
+                log.debug("starting progress bars")
+                pblist = list()
+                if not conf["index_only"]:
+                    pblist.extend(await state_dl.progress_get_renderables())
+                if not conf["download_only"]:
+                    pblist.extend(await state_idx.progress_get_renderables())
+                pbars = Live(Group(*pblist))
+                theme = dict.fromkeys(["bar.complete", "bar.pulse", "bar.finished", "progress.percentage", "progress.description", "progress.filesize", "progress.filesize.total", "progress.download", "progress.elapsed", "progress.remaining", "progress.data.speed" ], "default")
+                theme["bar.back"] = "conceal" # TODO may not work in every terminal, from documentation https://rich.readthedocs.io/en/latest/style.html
+                pbars.console.push_theme(Theme(theme))
+
+            # wait for indexer and downloader
             if pbars:
                 pbars.start()
             tasks = list(filter(None, [task_indexer, task_downloader]))
             await asyncio.gather(*tasks, return_exceptions=True)
 
-        except (asyncio.exceptions.CancelledError, KeyboardInterrupt):
-            log.info("saving state and exiting...")
+        except asyncio.CancelledError:
+            log.debug("run canceled")
 
         except Exception as e:
             log.warning(f"Exception {e}")
             self.errors.append(e)
 
-        finally:
-            task_maintainer.cancel()
-            await asyncio.gather(task_maintainer, return_exceptions=True)
-            state_idx.save()
-            state_dl.save()
-            if pbars:
-                if not conf["index_only"]:
-                    state_dl.progress_wk_refresh_all()
-                state_dl.progress_refresh(force=True)
-                state_idx.progress_refresh(force=True)
-                pbars.stop()
-            log.info(str(state_idx))
-            log.info(str(state_dl))
+        await self.shutdown_workers()
+        log.info("saving state and exiting...")
+        state_idx.save()
+        state_dl.save()
+        if pbars:
+            if not conf["index_only"]:
+                state_dl.progress_wk_refresh_all()
+            state_dl.progress_refresh(force=True)
+            state_idx.progress_refresh(force=True)
+            pbars.stop()
+        log.info(str(state_idx))
+        log.info(str(state_dl))
 
         log.debug(f"log file : {conf['log_file']}")
         time_end = time.monotonic()
@@ -707,7 +713,6 @@ class Httpeat():
         conf = self.conf
         state_idx = self.state_idx
         state_dl = self.state_dl
-        tasks = list()
 
         try:
             if not conf["no_progress"]:
@@ -722,11 +727,12 @@ class Httpeat():
                 for wk_src in conf["sources"]:
                     for wk_num in range(conf["tasks_count"]):
                         tsk = asyncio.create_task(self.indexer_worker(wk_src, wk_num, wk_proxy, client))
-                        tasks.append(tsk)
+                        self.workers.append(tsk)
             # wait for the index state queues to be empty
             await state_idx.join()
-            # close httx clients
-            await asyncio.gather(*[client.aclose() for client in clients])
+
+        except asyncio.CancelledError:
+            log.debug("indexer canceled")
 
         except Exception as e:
             log.warning(f"indexer: Exception {e}")
@@ -734,15 +740,14 @@ class Httpeat():
             self.errors.append(e)
 
         finally:
-            log.debug("indexer exit")
+            # close httx clients
+            await asyncio.gather(*[client.aclose() for client in clients])
             state_idx.progress_update(refresh=True)
-            for tsk in tasks:
-                tsk.cancel()
-            await asyncio.gather(*tasks, return_exceptions=True)
+            log.debug("indexer exit")
 
     async def indexer_worker(self, wk_src, wk_num, wk_proxy, client):
-    """ download to .<dir>.index.download
-        when complete, rename to .<dir>.index and parse """
+        """ download to .<dir>.index.download
+            when complete, rename to .<dir>.index and parse """
         wk_name = f"idx-{wk_src['name']}{wk_proxy['name']}{wk_num}"
         conf = self.conf
         state_idx = self.state_idx
@@ -785,7 +790,7 @@ class Httpeat():
                         log.debug(f"{wk_name} page parsing done")
                         status = "ok"
 
-            except asyncio.CancelledError as e:
+            except asyncio.CancelledError:
                 log.debug(f"{wk_name} canceled")
                 exiting = True
                 break
@@ -799,11 +804,12 @@ class Httpeat():
 
             finally:
                 if entry:
-                    log.info(f"{wk_name} {status} {path_print}")
                     state_idx.done(entry, status=status)
                     state_idx.progress_update()
                     state_dl.progress_update()
                 if not exiting:
+                    if entry:
+                        log.info(f"{wk_name} {status} {path_print}")
                     # sleeping is critically important even 0 seconds, to let other tasks get() from the queue
                     await sleepy(conf["wait"], status)
 
@@ -814,7 +820,6 @@ class Httpeat():
         conf = self.conf
         state_idx = self.state_idx
         state_dl = self.state_dl
-        tasks = list()
 
         try:
             if not conf["no_progress"]:
@@ -831,13 +836,14 @@ class Httpeat():
                     for wk_num in range(wk_proxy["tasks_count"]):
                         state_dl.progress_wk_create(wk_src, wk_num, wk_proxy)
                         tsk = asyncio.create_task(self.downloader_worker(wk_src, wk_num, wk_proxy, client))
-                        tasks.append(tsk)
+                        self.workers.append(tsk)
             # wait for the indexer queues to be empty
             await state_idx.join()
             # wait for the downloader queues to be empty
             await state_dl.join()
-            # close httx clients
-            await asyncio.gather(*[client.aclose() for client in clients])
+
+        except asyncio.CancelledError:
+            log.debug("downloader canceled")
 
         except Exception as e:
             log.warning(f"downloader: Exception {e}")
@@ -846,14 +852,13 @@ class Httpeat():
 
         finally:
             try:
-                log.debug("downloader exit")
-                for tsk in tasks:
-                    tsk.cancel()
-                await asyncio.gather(*tasks, return_exceptions=True)
+                # close httx clients
+                await asyncio.gather(*[client.aclose() for client in clients])
                 state_dl.progress_update(refresh=True)
             except Exception as e:
-                log.warning(f"downloader error in cleanup: {e}") # TODO remove that try except, debug only
+                log.warning(f"downloader error in cleanup: {e}")
                 log.warning(traceback.format_exc())
+            log.debug("downloader exit")
 
     async def downloader_worker(self, wk_src, wk_num, wk_proxy, client):
         """ download to <file>.download
@@ -881,7 +886,7 @@ class Httpeat():
                     filesize = 0
                     status, path_print, path_finished = await self.download_file(state_dl, client, entry, wk_src, wk_num, wk_proxy, wk_name)
 
-            except asyncio.CancelledError as e:
+            except asyncio.CancelledError:
                 log.info(f"{wk_name} canceled")
                 exiting = True
                 break
@@ -894,19 +899,20 @@ class Httpeat():
             finally:
                 try:
                     if entry:
-                        if status != "ok":
-                            size_print = f"{format_size(filesize)} / {format_size(entry['size'])}"
-                        else:
-                            size_print = format_size(entry['size'])
-                        log.info(f"{wk_name} {status} {path_print} ({size_print})")
                         state_dl.done(entry, status)
                         state_dl.progress_update()
                     if not exiting:
+                        if entry:
+                            if status == "ok":
+                                size_print = format_size(entry['size'])
+                            else:
+                                size_print = f"{format_size(filesize)} / {format_size(entry['size'])}"
+                            log.info(f"{wk_name} {status} {path_print} ({size_print})")
                         # sleeping is critically important even 0 seconds, to let other tasks get() from the queue
                         log.debug(f"{wk_name} sleeping {conf['wait']}")
                         await sleepy(conf["wait"], status)
                 except Exception as e:
-                    log.warning(f"{wk_name} error in task cleanup: {e}") # TODO remove that try except, debug only
+                    log.warning(f"{wk_name} error in task cleanup: {e}")
                     log.warning(traceback.format_exc())
 
         log.debug(f"{wk_name} exiting")
@@ -937,7 +943,7 @@ class Httpeat():
                 log.warning(traceback.format_exc())
                 self.exceptions.append(e)
 
-            except asyncio.CancelledError as e:
+            except asyncio.CancelledError:
                 log.debug(f"maintainer: canceled")
                 break
 
@@ -1134,9 +1140,6 @@ def main():
     else:
         log_console = RichHandler(show_time=False, show_level=False, show_path=False, highlighter=NullHighlighter())
     logging.basicConfig(level=level, format='%(asctime)s %(levelname)-.1s %(message)s', handlers=[log_console, log_file], datefmt='%d-%H:%M:%S')
-
-    # catch SIGTERM and send SIGINT instead, so program terminates clean using the try except for KeyboardInterrupt
-    signal.signal(signal.SIGTERM, raise_sigint)
 
     #asyncio.run(session(conf))
     h = Httpeat(conf)

@@ -175,7 +175,7 @@ v0.3 : first public version, various fixes
 - package with pyproject.toml
 - public version
 
-TODO v0.4 - indexing supports resume, proxies and mirrors + heavy internal refactor and better error handling
+TODO v0.4 - indexing supports resume, proxies and mirrors. heavy general internal refactor and better error handling
 - fix error reporting in indexer table parsing
 - fix error count statistic display at end of session
 - refactor session into Httpeat object to share objects easily between downloader and indexer
@@ -185,7 +185,8 @@ TODO v0.4 - indexing supports resume, proxies and mirrors + heavy internal refac
 - report errors and warnings count at end of session
 - return process error code as per error count
 - support proxies and mirros in indexing
-TODO fix handling of SIGTERM and SIGINT
+- fix handling of SIGTERM and SIGINT
+- extend network tests to ensure interruptions do not corrupt data
 TODO fix Exception accounting and reporting
 TODO fix (again) flickering of progress bar. try rich Table
      see https://github.com/Textualize/rich/blob/master/examples/live_progress.py
