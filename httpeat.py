@@ -642,9 +642,15 @@ class Httpeat():
         conf = self.conf
         state_idx = self.state_idx
         state_dl = self.state_dl
-        loop = asyncio.get_event_loop()
-        for sig in [signal.SIGTERM, signal.SIGINT]:
-            loop.add_signal_handler(sig, lambda sig=sig: asyncio.create_task(self.shutdown_workers(sig)))
+
+        lock_file = conf["session_dir"] / "running"
+        try:
+            lf = os.open(lock_file, os.O_CREAT | os.O_EXCL | os.O_RDWR)
+            os.write(lf, str(os.getpid()).encode())
+            os.close(lf)
+        except FileExistsError:
+            log.error(f"session already running in pid {lock_file.read_text()}")
+            return
 
         if state_idx.empty() and state_dl.empty():
             log.info("nothing to do")
@@ -654,6 +660,9 @@ class Httpeat():
         time_begin = time.monotonic()
         task_indexer = None
         task_downloader = None
+        loop = asyncio.get_event_loop()
+        for sig in [signal.SIGTERM, signal.SIGINT]:
+            loop.add_signal_handler(sig, lambda sig=sig: asyncio.create_task(self.shutdown_workers(sig)))
 
         try:
             # start indexer
@@ -724,6 +733,7 @@ class Httpeat():
         time_end = time.monotonic()
         elapsed = int(time_end - time_begin)
         log.info(f"end session {conf['session_name']} at {now()} after {datetime.timedelta(seconds=elapsed)} ({len(self.exceptions)} exceptions)")
+        os.unlink(lock_file)
         return len(self.exceptions)
 
     async def indexer(self):

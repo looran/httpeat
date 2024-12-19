@@ -225,7 +225,7 @@ TODO v0.4 - indexing supports resume, proxies and mirrors. heavy general interna
 - extend network tests to validate that repeated interruptions do not corrupt data
 - fix download total size
 - fix Exception accounting and reporting
-TODO prevent multiple parallel executions of same session
+- prevent multiple parallel executions of same session
 
 TODO v1.0
 TODO fix rich library flickering of log scrolling over progress bar, see TODO in code at "RICH_USE_TABLE"
