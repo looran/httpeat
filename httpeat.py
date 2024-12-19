@@ -402,6 +402,12 @@ class URLQueue(asyncio.Queue):
                 self.stats["items_ok"] += 1
             else:
                 self.stats["items_error"] += 1
+            if init_load:
+                if entry["size"] >= 0:
+                    self.stats["size_completed"] += entry["size"]
+                    self.stats["size_total"] += entry["size"]
+                else:
+                    self.stats["no_size"] += 1
         if not init_load:
             self.task_done()
 

@@ -186,7 +186,8 @@ TODO v0.4 - indexing supports resume, proxies and mirrors. heavy general interna
 - return process error code as per error count
 - support proxies and mirros in indexing
 - fix handling of SIGTERM and SIGINT
-- extend network tests to ensure interruptions do not corrupt data
+- extend network tests to validate that repeated interruptions do not corrupt data
+- fix download total size
 TODO fix Exception accounting and reporting
 TODO fix (again) flickering of progress bar. try rich Table
      see https://github.com/Textualize/rich/blob/master/examples/live_progress.py
