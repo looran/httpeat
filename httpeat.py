@@ -104,6 +104,7 @@ from rich.console import Console
 from rich.progress import Progress, TextColumn, BarColumn, TaskProgressColumn, MofNCompleteColumn, TimeRemainingColumn, DownloadColumn, TransferSpeedColumn
 from rich.highlighter import NullHighlighter
 from rich.console import Group
+from rich.table import Table
 from rich.live import Live
 from tenacity import AsyncRetrying, stop_after_attempt, wait_fixed, wait_random, retry_if_exception_type
 
@@ -672,12 +673,24 @@ class Httpeat():
             pbars = None
             if not conf["no_progress"]:
                 log.debug("starting progress bars")
-                pblist = list()
-                if not conf["index_only"]:
-                    pblist.extend(await state_dl.progress_get_renderables())
-                if not conf["download_only"]:
-                    pblist.extend(await state_idx.progress_get_renderables())
-                pbars = Live(Group(*pblist))
+                RICH_USE_TABLE=True # TODO fix flickering on log scrolling over progress bars, with both Table and Group
+                if RICH_USE_TABLE:
+                    tab = Table.grid()
+                    if not conf["index_only"]:
+                        for pb in await state_dl.progress_get_renderables():
+                            tab.add_row(pb)
+                    if not conf["download_only"]:
+                        for pb in await state_idx.progress_get_renderables():
+                            tab.add_row(pb)
+                    pbars = Live(tab)
+                else:
+                    pblist = list()
+                    if not conf["index_only"]:
+                        pblist.extend(await state_dl.progress_get_renderables())
+                    if not conf["download_only"]:
+                        pblist.extend(await state_idx.progress_get_renderables())
+                    pbars = Live(Group(*pblist))
+
                 theme = dict.fromkeys(["bar.complete", "bar.pulse", "bar.finished", "progress.percentage", "progress.description", "progress.filesize", "progress.filesize.total", "progress.download", "progress.elapsed", "progress.remaining", "progress.data.speed" ], "default")
                 theme["bar.back"] = "conceal" # TODO may not work in every terminal, from documentation https://rich.readthedocs.io/en/latest/style.html
                 pbars.console.push_theme(Theme(theme))

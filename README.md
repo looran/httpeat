@@ -189,15 +189,21 @@ TODO v0.4 - indexing supports resume, proxies and mirrors. heavy general interna
 - extend network tests to validate that repeated interruptions do not corrupt data
 - fix download total size
 TODO fix Exception accounting and reporting
-TODO fix (again) flickering of progress bar. try rich Table
-     see https://github.com/Textualize/rich/blob/master/examples/live_progress.py
-TODO when size is not found in index, perform HEAD requests in indexer
+TODO prevent multiple executions in same session
 
 TODO v1.0
+TODO fix rich library flickering of log scrolling over progress bar, see TODO in code at "RICH_USE_TABLE"
 TODO cleanup and review
 
 TODO v1.1
+TODO ? when size is not found in index, perform HEAD requests in indexer ?
+
+TODO LATER
+TODO pluggable indexer
 TODO set directories mtime from index
 TODO profile code to see if we can improve performance with large download lists / CSV
 TODO download single file over multiple mirrors and proxies ?
+TODO httpeat-select to edit files status in download state file, using textual
+     automatic reload in httpeat when state file change ? dangerous ?
+     OR required httpeat to be stopped
 ```
