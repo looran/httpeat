@@ -95,7 +95,6 @@ class Test_httpeat_download:
         httpx_mock.add_response(content=b"toto")
         h = Httpeat(httpeat_conf)
         assert await h.run() == 0
-        assert len(h.warnings) == 0
         assert_local_files(httpeat_conf)
         assert_state_dl_file(httpeat_conf, 0, "ok")
 
@@ -162,7 +161,7 @@ class Test_httpeat_download:
         httpeat_conf["retry_dl_networkerror"] = 0
         httpeat_conf["retry_global_error"] = 0
         h = Httpeat(httpeat_conf)
-        assert await h.run() == 0
+        assert await h.run() == 1
         assert_local_files(httpeat_conf, exists=False)
         assert_state_dl_file(httpeat_conf, 0, "error")
 

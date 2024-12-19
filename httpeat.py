@@ -627,8 +627,7 @@ class Httpeat():
         self.state_dl = state_dl
         self.state_idx = state_idx
         self.workers = list()
-        self.errors = list()
-        self.warnings = list()
+        self.exceptions = list()
 
     async def shutdown_workers(self, signal=None):
         if signal:
@@ -706,7 +705,7 @@ class Httpeat():
 
         except Exception as e:
             log.warning(f"Exception {e}")
-            self.errors.append(e)
+            self.exceptions.append(e)
 
         await self.shutdown_workers()
         log.info("saving state and exiting...")
@@ -724,8 +723,8 @@ class Httpeat():
         log.debug(f"log file : {conf['log_file']}")
         time_end = time.monotonic()
         elapsed = int(time_end - time_begin)
-        log.info(f"end session {conf['session_name']} at {now()} after {datetime.timedelta(seconds=elapsed)} with {len(self.errors)} errors and {len(self.warnings)} warnings")
-        return len(self.errors)
+        log.info(f"end session {conf['session_name']} at {now()} after {datetime.timedelta(seconds=elapsed)} ({len(self.exceptions)} exceptions)")
+        return len(self.exceptions)
 
     async def indexer(self):
         log.debug("indexer start")
@@ -756,7 +755,7 @@ class Httpeat():
         except Exception as e:
             log.warning(f"indexer: Exception {e}")
             log.debug(traceback.format_exc())
-            self.errors.append(e)
+            self.exceptions.append(e)
 
         finally:
             # close httx clients
@@ -819,7 +818,7 @@ class Httpeat():
                 log.warning(traceback.format_exc())
                 if response:
                     log.debug(decode())
-                self.warnings.append(e)
+                self.exceptions.append(e)
 
             finally:
                 if entry:
@@ -867,7 +866,7 @@ class Httpeat():
         except Exception as e:
             log.warning(f"downloader: Exception {e}")
             log.debug(traceback.format_exc())
-            self.errors.append(e)
+            self.exceptions.append(e)
 
         finally:
             try:
@@ -913,7 +912,7 @@ class Httpeat():
             except Exception as e:
                 log.warning(f"{wk_name} Exception while downloading file, requeing it : {e}")
                 log.warning(traceback.format_exc())
-                self.warnings.append(e)
+                self.exceptions.append(e)
 
             finally:
                 try:
