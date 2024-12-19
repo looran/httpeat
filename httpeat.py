@@ -1050,9 +1050,6 @@ class Httpeat():
                 d = dateutil.parser.parse(entry["date"])
                 os.utime(path_finished, (d.timestamp(), d.timestamp()))
 
-        if do_progress:
-            state.progress_wk_update(wk_src, wk_num, wk_proxy, path_print, filesize, entry["size"], attempt.retry_state.attempt_number, resume_number)
-
         return status, path_print, path_finished
 
 #
