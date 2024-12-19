@@ -15,12 +15,9 @@ Features:
 # Usage
 
 ```
-usage: httpeat.py [-h] [-A USER_AGENT] [-d] [-i] [-I] [-k] [-m MIRROR] [-P]
-                  [-q] [-s SKIP] [-t TIMEOUT] [-T] [-v] [-w WAIT] [-x PROXY]
-                  [-z TASKS_COUNT]
-                  session_name [targets ...]
+usage: httpeat.py [-h] [-A USER_AGENT] [-d] [-i] [-I] [-k] [-m MIRROR] [-P] [-q] [-s SKIP] [-t TIMEOUT] [-T] [-v] [-w WAIT] [-x PROXY] [-z TASKS_COUNT] session_name [targets ...]
 
-httpeat v0.2 - recursive, parallel and multi-mirror/multi-proxy HTTP downloader
+httpeat v0.3 - a recursive, parallel and multi-mirror/multi-proxy HTTP downloader
 
 positional arguments:
   session_name          name of the session
@@ -55,19 +52,6 @@ options:
                         number of parallel tasks, defaults to 3
 ```
 
-## session directory structure
-```
-<session_name>/
-   log.txt
-   state_download.csv
-   state_index.csv
-   targets.txt
-   mirrors.txt
-   proxies.txt
-   data/
-      ...downloaded files...
-```
-
 ## Example usage
 
 - crawl HTTP index page and linked files
@@ -82,22 +66,22 @@ httpeat antennes
 
 - crawl HTTP index page, using mirror from host2
 ```
-httpeat bigfilesA https://host1/data/ -m "https://host2/data/ mirrors https://host1/data/"
+httpeat bigfiles https://host1/data/ -m "https://host2/data/ mirrors https://host1/data/"
 ```
 
 - crawl HTTP index page, using 2 proxies
 ```
-httpeat bigfilesB https://host1/data/ -x "socks4://192.168.0.2:3000" -x "socks4://192.168.0.3:3000"
+httpeat bigfiles https://host1/data/ -x "socks4://192.168.0.2:3000" -x "socks4://192.168.0.3:3000"
 ```
 
 - crawl 2 HTTP index directory pages
 ```
-httpeat bigfilesC https://host1/data/one/ https://host1/data/six/
+httpeat bigfiles https://host1/data/one/ https://host1/data/six/
 ```
 
 - download 3 files
 ```
-httpeat bigfilesD https://host1/data/bigA.iso https://host1/data/six/bigB.iso https://host1/otherdata/bigC.iso
+httpeat bigfiles https://host1/data/bigA.iso https://host1/data/six/bigB.iso https://host1/otherdata/bigC.iso
 ```
 
 - download 3 files with URLs from txt file
@@ -107,8 +91,60 @@ https://host1/data/bigA.iso
 https://host1/data/six/bigB.iso
 https://host1/otherdata/bigC.iso
 _EOF
-httpeat bigfilesE ./list.txt
+httpeat bigfiles ./list.txt
 ```
+
+## Session directory structure
+```
+<session_name>/
+   data/
+      ...downloaded files...
+   log.txt
+   state_download.csv
+   state_index.csv
+   targets.txt
+   mirrors.txt
+   proxies.txt
+```
+
+## Progress output
+
+progress output:
+unless -P / --no-progress is specified, a live progress output is displayed bellow logs on several bars:
+- `dl-<Mirror><proxy><task_number>`
+per-file download progress bars, defaults to 3 parrallel tasks.
+will be duplicated per mirror (uppercase letter 'A' to 'Z') and per proxy (lowercase letter 'a' to 'z')
+- `dl`
+downloader global progress bar, based on total downloaded size, and also shows downloaded file count and e<error-count>
+- `idx`
+indexer global progress bar, based on number of pages indexed and e<error-count>
+
+Note that several indexer tasks are also running in parallel, but they don't have their own progress bar as their individual tasks are supposedely quickly finished.
+
+## State files format
+
+In session directory, the files `state_{{download,index}}.csv` respect the bellow format.
+
+```
+type,url,date,size,state
+```
+
+- type
+  - f: file
+  - d: directory
+- url
+full url of the file or directory to download
+- date
+when indexing, modification date of files to download is parsed from HTTP index page
+- size
+when indexing, size of files to download is parsed from HTTP index page
+- state
+  - ok: downloading is complete
+  - progress: downloading is incomplete and in progress or will be resumed on next startup
+  - error: downloading is stopped due to errors and will not be resumed
+  - todo: downloading has not started yet
+  - skipped: downloading is skipped due to -s / --skip rules, and will be re-evaluated on next startup
+  - ignore: downloading is permanently skipped (useful to manualy ignore specific files)
 
 # Installation
 

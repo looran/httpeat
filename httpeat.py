@@ -16,14 +16,14 @@ EPILOG = f"""session directory structure:
    proxies.txt
 
 progress output:
-unless -P / --no-progress is specified, a live progress output is displayed bellow logs:
+unless -P / --no-progress is specified, a live progress output is displayed bellow logs on several bars:
    dl-<Mirror><proxy><task_number>
-      file download progress lines, defaults to 3 parrallel tasks
-      it is specific to a mirror (uppercase letter) and a proxy (lowercase letter)
+      per-file download progress bars, defaults to 3 parrallel tasks.
+      will be duplicated per mirror (uppercase letter 'A' to 'Z') and per proxy (lowercase letter 'a' to 'z')
    dl
-      downloader global progress, based on total downloaded size, and also shows downloaded file count and e<error-count>
+      downloader global progress bar, based on total downloaded size, and also shows downloaded file count and e<error-count>
    idx
-      indexer global progress, based on number of pages indexed and e<error-count>
+      indexer global progress bar, based on number of pages indexed and e<error-count>
 
 state_{{download,index}}.csv format
    type,url,date,size,state
@@ -50,20 +50,20 @@ httpeat antennes https://ferme.ydns.eu/antennes/bands/2024-10/
 - resume after interrupt
 httpeat antennes
 - crawl HTTP index page, using mirror from host2
-httpeat bigfilesA https://host1/data/ -m "https://host2/data/ mirrors https://host1/data/"
+httpeat bigfiles https://host1/data/ -m "https://host2/data/ mirrors https://host1/data/"
 - crawl HTTP index page, using 2 proxies
-httpeat bigfilesB https://host1/data/ -x "socks4://192.168.0.2:3000" -x "socks4://192.168.0.3:3000"
+httpeat bigfiles https://host1/data/ -x "socks4://192.168.0.2:3000" -x "socks4://192.168.0.3:3000"
 - crawl 2 HTTP index directory pages
-httpeat bigfilesC https://host1/data/one/ https://host1/data/six/
+httpeat bigfiles https://host1/data/one/ https://host1/data/six/
 - download 3 files
-httpeat bigfilesD https://host1/data/bigA.iso https://host1/data/six/bigB.iso https://host1/otherdata/bigC.iso
+httpeat bigfiles https://host1/data/bigA.iso https://host1/data/six/bigB.iso https://host1/otherdata/bigC.iso
 - download 3 files with URLs from txt file
 cat <<-_EOF > ./list.txt
 https://host1/data/bigA.iso
 https://host1/data/six/bigB.iso
 https://host1/otherdata/bigC.iso
 _EOF
-httpeat bigfilesE ./list.txt
+httpeat bigfiles ./list.txt
 """
 TASKS_DEFAULT = 3
 TO_DEFAULT = 15.0
@@ -971,9 +971,10 @@ class Httpeat():
     async def download_file(self, state, client, entry, wk_src, wk_num, wk_proxy, wk_name, prefix="", extension=""):
         status = "error"
         do_progress = not self.conf["no_progress"] and state == self.state_dl
+        url = entry["url"]
 
         # get local file path, check it's existence and create local directories
-        path_finished, path_tmp, path_print, url_print = url_to_path(entry["url"], self.conf["session_dir"], self.conf["target_urls_prefix"], prefix=prefix, extension=extension)
+        path_finished, path_tmp, path_print, url_print = url_to_path(url, self.conf["session_dir"], self.conf["target_urls_prefix"], prefix=prefix, extension=extension)
         if path_finished.exists():
             return "ok", path_print, path_finished
 
@@ -993,10 +994,6 @@ class Httpeat():
             log.debug(f"{wk_name} file is already fully downloaded")
             status = "ok"
         else:
-            # download file
-
-            url = entry["url"]
-
             # open temporary local file
             log.debug(f"{wk_name} writing to {path_tmp}")
             with path_tmp.open('w+b') as fd:
@@ -1157,7 +1154,6 @@ def main():
         log_console = RichHandler(show_time=False, show_level=False, show_path=False, highlighter=NullHighlighter())
     logging.basicConfig(level=level, format='%(asctime)s %(levelname)-.1s %(message)s', handlers=[log_console, log_file], datefmt='%d-%H:%M:%S')
 
-    #asyncio.run(session(conf))
     h = Httpeat(conf)
     return asyncio.run(h.run())
 
