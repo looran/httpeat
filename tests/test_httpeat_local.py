@@ -45,8 +45,7 @@ def httpeat_conf(request):
         "no_index_touch": False,
         "wait": 0.0,
         "user_agent": None,
-        "retry_dl_networkerror": httpeat.RETRY_DL_NETWORKERROR_DEFAULT,
-        "retry_index_networkerror": httpeat.RETRY_INDEX_NETWORKERROR_DEFAULT,
+        "retry_network_error": httpeat.RETRY_NETWORK_ERROR_DEFAULT,
         "retry_global_error": httpeat.RETRY_GLOBAL_ERROR_DEFAULT,
     }
     conf.update(request.param)
@@ -144,7 +143,7 @@ class Test_httpeat_download:
     @pytest.mark.httpx_mock(can_send_already_matched_responses=True)
     async def test_dl_err_transporterror_fails(self, httpx_mock: HTTPXMock, httpeat_conf):
         httpx_mock.add_exception(httpx.RemoteProtocolError("peer closed connection"))
-        httpeat_conf["retry_dl_networkerror"] = 0
+        httpeat_conf["retry_network_error"] = 0
         httpeat_conf["retry_global_error"] = 0
         h = Httpeat(httpeat_conf)
         assert await h.run() == 0
@@ -158,7 +157,7 @@ class Test_httpeat_download:
     @pytest.mark.httpx_mock(can_send_already_matched_responses=True)
     async def test_dl_err_httpstatuserror_fails(self, httpx_mock: HTTPXMock, httpeat_conf):
         httpx_mock.add_exception(httpx.HTTPStatusError("err", request="req", response=""))
-        httpeat_conf["retry_dl_networkerror"] = 0
+        httpeat_conf["retry_network_error"] = 0
         httpeat_conf["retry_global_error"] = 0
         h = Httpeat(httpeat_conf)
         assert await h.run() == 1

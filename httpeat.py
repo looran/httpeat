@@ -69,8 +69,7 @@ TASKS_DEFAULT = 3
 TO_DEFAULT = 15.0
 STATE_SAVE_PERIOD = 600
 STATE_PROGRESSREFRESH_PERIOD = 0.5
-RETRY_DL_NETWORKERROR_DEFAULT = 7
-RETRY_INDEX_NETWORKERROR_DEFAULT = 7
+RETRY_NETWORK_ERROR_DEFAULT = 7
 RETRY_GLOBAL_ERROR_DEFAULT = 3
 FILENAME_MAXLEN = 254
 
@@ -1018,7 +1017,7 @@ class Httpeat():
                 # set download retry rules
                 resume_number = 0
                 try:
-                    async for attempt in AsyncRetrying(stop=stop_after_attempt(self.conf["retry_dl_networkerror"]),
+                    async for attempt in AsyncRetrying(stop=stop_after_attempt(self.conf["retry_network_error"]),
                             wait=wait_random(0, 2),
                             retry=retry_if_exception_type(httpx.TransportError),
                             reraise=True):
@@ -1052,7 +1051,7 @@ class Httpeat():
                                 state.progress_wk_update(wk_src, wk_num, wk_proxy, path_print, filesize, entry["size"], attempt.retry_state.attempt_number, resume_number)
                             log.debug(f"{wk_name} retry e-{attempt.retry_state.attempt_number} r-{resume_number} size {filesize} {path_tmp.name}")
                 except httpx.TransportError as e:
-                    log.warning(f"{wk_name} transport error, requeing file : {type(e).__name__} {e} ({self.conf['retry_dl_networkerror']} previous transport errors)")
+                    log.warning(f"{wk_name} transport error, requeing file : {type(e).__name__} {e} ({self.conf['retry_network_error']} previous transport errors)")
                 else:
                     status = "ok"
 
@@ -1080,6 +1079,7 @@ def main():
     parser.add_argument("-A", "--user-agent", help=f"user agent")
     parser.add_argument("-d", "--download-only", action="store_true", help="only download already listed files")
     parser.add_argument("-i", "--index-only", action="store_true", help="only list all files recursively, do not download")
+    parser.add_argument("-e", "--retry-network-error", type=int, help=f"number of transport errors to retry for, defaults to {RETRY_NETWORK_ERROR_DEFAULT}")
     parser.add_argument("-I", "--index-debug", action="store_true", help="drop in interactive ipython shell during indexing")
     parser.add_argument("-k", "--no-ssl-verify", action='store_true', help="do no verify the SSL certificate in case of HTTPS connection")
     parser.add_argument("-m", "--mirror", action="append", default=[], help="mirror definition to load balance requests, eg. \"http://host1/data/ mirrors http://host2/data/\"\ncan be specified multiple times.\nonly valid uppon session creation, afterwards you must modify session mirrors.txt.")
@@ -1102,8 +1102,6 @@ def main():
         parser.error("index_only and download_only are exclusive")
     if args.index_debug and not args.no_progress:
         parser.error("must specify --no-progress when using --index-debug")
-    conf["retry_dl_networkerror"] = RETRY_DL_NETWORKERROR_DEFAULT
-    conf["retry_index_networkerror"] = RETRY_INDEX_NETWORKERROR_DEFAULT
     conf["retry_global_error"] = RETRY_GLOBAL_ERROR_DEFAULT
     conf["session_dir"] = Path(args.session_name).resolve()
     conf["targets_file"] = conf["session_dir"] / "targets.txt"
