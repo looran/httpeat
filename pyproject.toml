@@ -11,6 +11,15 @@ requires-python = ">=3.0"
 keywords = ["http", "downloader", "recursive", "parallel", "mirror", "proxy"]
 license = {text = "BSD-3-Clause"}
 dynamic = ["version"]
+dependencies = [
+    "httpx[socks]",
+    "bs4",
+    "lxml",
+    "python-dateutil",
+    "rich",
+    "humanfriendly",
+    "tenacity",
+]
 
 [project.scripts]
 httpeat = "httpeat:main"
