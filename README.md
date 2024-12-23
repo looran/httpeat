@@ -226,6 +226,7 @@ TODO v0.4 - indexing supports resume, proxies and mirrors. heavy general interna
 - fix download total size
 - fix Exception accounting and reporting
 - prevent multiple parallel executions of same session
+- show name instead of path in progress bar
 
 TODO v1.0
 TODO fix rich library flickering of log scrolling over progress bar, see TODO in code at "RICH_USE_TABLE"

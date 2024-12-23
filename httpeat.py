@@ -516,10 +516,13 @@ class URLQueue_dl(URLQueue):
             }
             self.progress_wk_update(wk_src, wk_num, wk_proxy, refresh=True)
 
-    def progress_wk_update(self, wk_src, wk_num, wk_proxy, filename="", completed=0, total=0, error=0, resume=0, refresh=False):
+    def progress_wk_update(self, wk_src, wk_num, wk_proxy, filepath="", completed=0, total=0, error=0, resume=0, refresh=False):
         if self.progress_wk:
             task_name = self._wk_name(wk_src, wk_num, wk_proxy)
             wk = self.progress_wk["tasks"][task_name]
+            filename = ""
+            if filepath:
+                filename = Path(filepath).name
             wk["update"] = {
                 "filename": filename, "completed": completed,
                 "total": total, "error": error, "resume": resume,
