@@ -1,6 +1,6 @@
 [build-system]
-requires = ["setuptools"]
-build-backend = "setuptools.build_meta"
+requires = ["flit_core >=3.2,<4"]
+build-backend = "flit_core.buildapi"
 
 [project]
 name = "httpeat"
@@ -10,14 +10,19 @@ readme = "README.md"
 requires-python = ">=3.0"
 keywords = ["http", "downloader", "recursive", "parallel", "mirror", "proxy"]
 license = {text = "BSD-3-Clause"}
-dynamic = ["version", "dependencies"]
+dynamic = ["version"]
+dependencies = [
+    "httpx[socks]",
+    "bs4",
+    "lxml",
+    "python-dateutil",
+    "rich",
+    "humanfriendly",
+    "tenacity",
+]
 
 [project.scripts]
 httpeat = "httpeat:main"
-
-[tool.setuptools.dynamic]
-version = {attr = "httpeat.VERSION"}
-dependencies = {file = ["requirements.txt"]}
 
 [project.urls]
 "Homepage" = "https://github.com/looran/httpeat"

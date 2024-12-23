@@ -2,7 +2,7 @@
 
 # 2024, Laurent Ghigonis <ooookiwi@protonmail.com>
 
-VERSION = "0.3"
+__version__ = "0.3"
 DESCRIPTION = f"a recursive, parallel and multi-mirror/multi-proxy HTTP downloader"
 EPILOG = f"""session directory structure:
 <session_name>/
@@ -1075,7 +1075,7 @@ class Httpeat():
 #
 
 def main():
-    parser = argparse.ArgumentParser(description=f"httpeat v{VERSION} - {DESCRIPTION}", epilog=EPILOG, formatter_class=argparse.RawTextHelpFormatter)
+    parser = argparse.ArgumentParser(description=f"httpeat v{__version__} - {DESCRIPTION}", epilog=EPILOG, formatter_class=argparse.RawTextHelpFormatter)
     parser.add_argument("-A", "--user-agent", help=f"user agent")
     parser.add_argument("-d", "--download-only", action="store_true", help="only download already listed files")
     parser.add_argument("-i", "--index-only", action="store_true", help="only list all files recursively, do not download")
