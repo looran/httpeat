@@ -2,7 +2,7 @@
 
 # 2024, Laurent Ghigonis <ooookiwi@protonmail.com>
 
-__version__ = "0.3"
+__version__ = "0.4"
 DESCRIPTION = f"a recursive, parallel and multi-mirror/multi-proxy HTTP downloader"
 EPILOG = f"""session directory structure:
 <session_name>/

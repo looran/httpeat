@@ -1,5 +1,7 @@
 **httpeat is a recursive, parallel and multi-mirror/multi-proxy HTTP downloader**
 
+![demo: downloading files](doc/httpeat_demo.gif)
+
 Features:
 - parses HTTP index pages and HTTP URLs list, provided as arguments or from text file
 - **recursive and parallel crawling** of index pages
@@ -10,7 +12,7 @@ Features:
 - supports downloading **in parallel from multiple proxies**
 - best suited for bandwidth limited servers  
 
-![overview](doc/httpeat_overview_0.3.png)
+![overview](doc/httpeat_overview_0.4.png)
 
 # Usage
 
