@@ -1116,7 +1116,7 @@ def main():
         if len(args.targets) == 0:
             parser.error("must specify targets when session directory does not exist yet")
         # check if targets is arguments or file
-        if re.match("http[s]://", args.targets[0], re.I):
+        if re.match("http[s]?://", args.targets[0], re.I):
             # targets are argument urls
             conf["target_urls"] = args.targets
         else:
