@@ -1035,6 +1035,10 @@ class Httpeat():
                                     log.debug(f"{wk_name} server does not accept ranges, empty current file")
                                     fd.seek(0)
                                     filesize = 0
+                                if 'Content-Length' in response.headers and entry['size'] == -1:
+                                    entry['size'] = response.headers['Content-Length']
+                                    if filesize == 0:
+                                        filesize = entry['size']
                                 async for chunk in response.aiter_bytes():
                                     fd.write(chunk)
                                     received += len(chunk)
