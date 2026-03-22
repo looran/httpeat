@@ -1109,7 +1109,9 @@ def main():
         parser.error("index_only and download_only are exclusive")
     if args.index_debug and not args.no_progress:
         parser.error("must specify --no-progress when using --index-debug")
+    conf["retry_network_error"] = RETRY_NETWORK_ERROR_DEFAULT
     conf["retry_global_error"] = RETRY_GLOBAL_ERROR_DEFAULT
+    conf["tasks_count"] = TASKS_DEFAULT
     conf["session_dir"] = Path(args.session_name).resolve()
     conf["targets_file"] = conf["session_dir"] / "targets.txt"
     conf["mirrors_file"] = conf["session_dir"] / "mirrors.txt"
