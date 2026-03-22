@@ -1036,9 +1036,9 @@ class Httpeat():
                                     fd.seek(0)
                                     filesize = 0
                                 if 'Content-Length' in response.headers and entry['size'] == -1:
-                                    entry['size'] = response.headers['Content-Length']
-                                    if filesize == 0:
-                                        filesize = entry['size']
+                                    entry['size'] = int(response.headers['Content-Length'])
+                                    state.size_ajust_total(entry['size'])
+                                    log.debug(f"{wk_name} fixing size based on Content-Length: {entry['size']}")
                                 async for chunk in response.aiter_bytes():
                                     fd.write(chunk)
                                     received += len(chunk)
